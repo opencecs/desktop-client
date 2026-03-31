@@ -49,27 +49,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-http-local.ps1
 
 - `https://www.opencecs.com/api/v1`
 
-真实上游补充说明：
-
-- 上游采用统一包裹结构：`{ code, message, data }`
-- 即使 HTTP 状态为 `200`，只要业务 `code != 200`，本地聚合后端也会按错误处理
-- 当前阶段桌面实例默认视为 `is_desktop=true`；以后上游实例接口补齐该字段后，聚合层会直接优先使用它
-- 本地聚合接口已兼容真实路径别名：
-  - `POST /api/auth/login/account`
-  - `GET /api/user/info`
-  - `POST /api/user/token/refresh`
-  - `POST /api/user/logout`
-- 端口映射能力已接入只读和管理接口：
-  - `GET /api/console/instances/:id/port-mappings/overview`
-  - `GET /api/console/instances/:id/port-mappings?protocol=TCP&page=1&page_size=10`
-  - `POST /api/console/instances/:id/port-mappings`
-  - `PATCH /api/console/instances/:id/port-mappings/:mapping_id`
-  - `DELETE /api/console/instances/:id/port-mappings/:mapping_id`
-  - `POST /api/console/instances/:id/port-mappings/batch`
-  - `DELETE /api/console/instances/:id/port-mappings/batch`
-  - 列表接口支持 `protocol` 过滤，默认展示全部协议
-- 如果你在当前网络下直连 `https://www.opencecs.com/api/v1` 遇到 `503 Service Unavailable`，通常是上游 CDN 或边缘代理拦截，不是本地聚合代码崩溃
-
 ## Desktop Client
 
 真正的桌面客户端可执行文件和 MSI 安装包都可以生成：
@@ -107,12 +86,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-desktop-client.ps1
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build-desktop-msi.ps1
 ```
-
-这个脚本会完成：
-
-- 复用本地 `tools/wix314`
-- 构建 Tauri Windows MSI
-- 使用本地 updater 私钥生成 `.sig` 签名文件
 
 ### 发布本地更新清单
 
@@ -159,16 +132,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check-local-setup.ps1
 
 这个脚本只做环境说明，不改任何文件。适合联调前快速确认上游配置和更新源是否已经配好。
 
-## Docs
-
-- `ROADMAP.md`
-- `ARCHITECTURE.md`
-- `API_MAPPING.md`
-- `RELEASE_NOTES.md`
-
 ## Development Standards
 
 - 所有新增代码必须补充必要注释，只解释不明显的业务分支、兼容逻辑和数据归一化点。
 - 所有新增代码必须带维护日志，日志要面向排障，默认克制，不刷屏。
 - 日志必须支持开关或环境控制，开发和联调时可打开，默认生产输出保持最小化。
-- 新增分工时，子代理收到的任务说明里必须同步这条规范，避免后续代码风格不一致。
