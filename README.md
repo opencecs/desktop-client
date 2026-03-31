@@ -223,27 +223,6 @@ VITE_API_BASE_URL=http://127.0.0.1:9090/api
 
 项目使用 `replace` 指令将 Gin 框架指向本地 `third_party/gin` 目录，无需额外下载。其他依赖通过 `go mod` 自动管理。
 
-真实上游补充说明：
-
-- 上游采用统一包裹结构：`{ code, message, data }`
-- 即使 HTTP 状态为 `200`，只要业务 `code != 200`，本地聚合后端也会按错误处理
-- 当前阶段桌面实例默认视为 `is_desktop=true`；以后上游实例接口补齐该字段后，聚合层会直接优先使用它
-- 本地聚合接口已兼容真实路径别名：
-  - `POST /api/auth/login/account`
-  - `GET /api/user/info`
-  - `POST /api/user/token/refresh`
-  - `POST /api/user/logout`
-- 端口映射能力已接入只读和管理接口：
-  - `GET /api/console/instances/:id/port-mappings/overview`
-  - `GET /api/console/instances/:id/port-mappings?protocol=TCP&page=1&page_size=10`
-  - `POST /api/console/instances/:id/port-mappings`
-  - `PATCH /api/console/instances/:id/port-mappings/:mapping_id`
-  - `DELETE /api/console/instances/:id/port-mappings/:mapping_id`
-  - `POST /api/console/instances/:id/port-mappings/batch`
-  - `DELETE /api/console/instances/:id/port-mappings/batch`
-  - 列表接口支持 `protocol` 过滤，默认展示全部协议
-- 如果你在当前网络下直连 `https://www.opencecs.com/api/v1` 遇到 `503 Service Unavailable`，通常是上游 CDN 或边缘代理拦截，不是本地聚合代码崩溃
-
 ## Desktop Client
 
 真正的桌面客户端可执行文件和 MSI 安装包都可以生成：
@@ -332,13 +311,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check-local-setup.ps1
 ```
 
 这个脚本只做环境说明，不改任何文件。适合联调前快速确认上游配置和更新源是否已经配好。
-
-## Docs
-
-- `ROADMAP.md`
-- `ARCHITECTURE.md`
-- `API_MAPPING.md`
-- `RELEASE_NOTES.md`
 
 ## Development Standards
 
