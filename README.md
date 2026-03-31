@@ -109,8 +109,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\serve-updates.ps1
 
 - `http://127.0.0.1:8787/latest.json`
 
-桌面客户端右上角已有 `检查更新` 按钮。当前如果本地发布的版本号和客户端一致，会提示已经是最新版本。
-
 ### 本地升级演练
 
 当前仓库已经切到 `0.1.1`。为了验证从 `0.1.0` 升级到 `0.1.1`，保留了 `0.1.0` 基线归档：
