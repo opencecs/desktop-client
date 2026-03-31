@@ -1,53 +1,248 @@
 # Device Control Center
 
-实例管理台 V1，采用前后端分离结构：
+基于 **Tauri 2 + React 18 + Go** 的桌面端云实例管理工具。支持实例总览、VNC 远程桌面、屏幕墙、SSH 终端等功能。
 
-- `frontend/desktop-app`: Tauri 2 + React + TypeScript 桌面客户端，已实现登录、实例总览、实例详情、桌面控制占位页和自动更新入口。
-- `backend/api`: Go + Gin 聚合后端，负责认证代理、实例聚合、桌面系统筛选与控制动作透传。
-> **Note:** Phase 1-3 migrations (UI refinement, error boundaries, structure refactoring including `src/views/`, `src/stores/`, and `src/components/ui/`) have been successfully completed.
-## Quick Start
+## 项目结构
 
-### Backend
-
-```powershell
-cd backend/api
-copy .env.example .env
-go run ./cmd/server
+```
+DeviceControlCenter/
+├── frontend/desktop-app/    # Tauri 2 桌面客户端 (React + TypeScript + Vite)
+│   ├── src/                 # 前端源码
+│   │   ├── views/           # 页面组件
+│   │   ├── components/      # 通用组件
+│   │   ├── stores/          # Zustand 状态管理
+│   │   ├── api/             # API 请求封装
+│   │   └── styles.css       # 全局样式
+│   └── src-tauri/           # Tauri/Rust 层（启动器 + sidecar 管理）
+├── backend/api/             # Go + Gin 聚合后端（作为 sidecar 随桌面端分发）
+│   ├── cmd/server/          # 入口
+│   ├── internal/            # 业务逻辑（路由、代理、VNC、SSH）
+│   └── config/              # 运行时配置
+└── scripts/                 # 构建与启动脚本 (PowerShell)
 ```
 
-后端启动后会代理真实上游接口，上游地址通过 `UPSTREAM_BASE_URL` 环境变量配置（默认 `https://www.opencecs.com/api/v1`）。
+---
 
-### Frontend
+## 环境准备
+
+在开始之前，确保已安装以下工具：
+
+| 工具 | 最低版本 | 用途 | 安装方式 |
+|------|---------|------|---------|
+| **Node.js** | v18+ | 前端构建 | [nodejs.org](https://nodejs.org/) |
+| **npm** | v9+ | 包管理（随 Node.js 安装） | — |
+| **Go** | 1.22+ | 后端编译 | [go.dev/dl](https://go.dev/dl/) |
+| **Rust** | 1.77+ | Tauri 桌面壳编译 | [rustup.rs](https://rustup.rs/) |
+| **Visual Studio Build Tools** | 2022 | Rust/C++ 编译链 | [Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) |
+
+> **Windows 用户：** 安装 Visual Studio Build Tools 时勾选 **"使用 C++ 的桌面开发"** 工作负载。Rust 编译 Tauri 需要 MSVC 工具链。
+
+### 验证安装
 
 ```powershell
-cd frontend/desktop-app
+node -v       # 应输出 v18.x 或更高
+npm -v        # 应输出 9.x 或更高
+go version    # 应输出 go1.22 或更高
+rustc -V      # 应输出 rustc 1.77 或更高
+cargo -V      # 应输出 cargo 1.77 或更高
+```
+
+---
+
+## 快速开始
+
+### 1. 克隆代码
+
+```powershell
+git clone https://github.com/opencecs/desktop-client.git
+cd desktop-client
+```
+
+### 2. 配置环境变量
+
+```powershell
+# 后端配置
+copy backend\api\.env.example backend\api\.env
+
+# 前端配置（可选，默认值即可使用）
+copy frontend\desktop-app\.env.example frontend\desktop-app\.env.local
+```
+
+后端 `.env` 默认内容：
+
+```env
+SERVER_ADDR=:8080
+UPSTREAM_BASE_URL=https://www.opencecs.com/api/v1
+REQUEST_TIMEOUT_MS=15000
+DESKTOP_RULES_PATH=config/desktop_rules.json
+```
+
+### 3. 安装前端依赖
+
+```powershell
+cd frontend\desktop-app
 npm install
-npm run dev
+cd ..\..
 ```
 
-前端会根据运行环境选择 API 基址：
-
-- 浏览器开发模式默认走 `/api`，配合 Vite 代理
-- Tauri 桌面模式默认走 `http://127.0.0.1:8080/api`
-- 如需覆盖，复制 `frontend/desktop-app/.env.example` 为 `.env.local`
-
-### One Command Local Start
+### 4. 一键启动（开发模式）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1
 ```
 
-默认前端运行在 `http://127.0.0.1:5173`，通过 `/api` 代理到本地 Go 服务。
+这会同时启动：
+- **Go 后端** → `http://127.0.0.1:8080`
+- **Vite 前端** → `http://127.0.0.1:5173`（浏览器开发模式，API 通过 Vite 代理转发到后端）
 
-如果要切到真实上游联调：
+也可以分别手动启动：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start-http-local.ps1
+# 终端 1：启动后端
+cd backend\api
+go run ./cmd/server
+
+# 终端 2：启动前端
+cd frontend\desktop-app
+npm run dev
 ```
 
-当前真实联调默认上游：
+### 5. Tauri 桌面开发模式
 
-- `https://www.opencecs.com/api/v1`
+如果需要在 Tauri 桌面窗口中调试：
+
+```powershell
+cd frontend\desktop-app
+npm run tauri:dev
+```
+
+> Tauri 模式下前端直接请求 `http://127.0.0.1:8080/api`，需要先单独启动后端。
+
+---
+
+## 构建桌面客户端
+
+### 一键构建（推荐）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-desktop.ps1
+```
+
+该脚本会按顺序执行：
+
+1. 临时关闭 `createUpdaterArtifacts`（避免需要签名密钥）
+2. 编译 Go 后端为 sidecar 可执行文件（`backend/api/bin/device-control-backend-x86_64-pc-windows-msvc.exe`）
+3. 编译 Tauri 桌面客户端（包含前端构建 + Rust 编译）
+4. 恢复配置文件
+
+构建产物：
+
+```
+frontend/desktop-app/src-tauri/target/release/
+├── desktop-app.exe                              # 可执行文件
+└── bundle/msi/
+    └── Device Control Center_1.0.0_x64_en-US.msi  # MSI 安装包
+```
+
+### 手动构建
+
+```powershell
+# 1. 编译后端 sidecar
+cd backend\api
+$env:GOOS = "windows"
+$env:GOARCH = "amd64"
+go build -o bin/device-control-backend-x86_64-pc-windows-msvc.exe ./cmd/server
+
+# 2. 编译桌面客户端
+cd ..\..\frontend\desktop-app
+npx tauri build
+```
+
+> **注意：** sidecar 文件名必须包含目标三元组后缀 `x86_64-pc-windows-msvc`，Tauri 按此规则查找。
+
+---
+
+## 技术栈
+
+| 层 | 技术 |
+|----|------|
+| 桌面壳 | Tauri 2 (Rust) — 窗口管理、sidecar 进程管理、自动更新 |
+| 前端 | React 18 + TypeScript + Vite |
+| 状态管理 | Zustand |
+| 远程桌面 | noVNC (WebSocket VNC) |
+| 终端 | xterm.js (WebSocket SSH) |
+| 后端 | Go + Gin — API 代理、VNC/SSH WebSocket 转发 |
+| 上游 API | OpenCECS 平台 (`https://www.opencecs.com/api/v1`) |
+
+## 运行架构
+
+```
+┌─────────────────────────────────────────────┐
+│              Tauri 桌面窗口                   │
+│  ┌───────────────────────────────────────┐   │
+│  │     React 前端 (WebView)              │   │
+│  │  VNC 屏幕墙 / SSH 终端 / 实例管理      │   │
+│  └────────────────┬──────────────────────┘   │
+│                   │ HTTP / WebSocket          │
+│  ┌────────────────▼──────────────────────┐   │
+│  │     Go 后端 (Sidecar, :8080)          │   │
+│  │  认证代理 / 实例聚合 / VNC&SSH 转发    │   │
+│  └────────────────┬──────────────────────┘   │
+└───────────────────┼─────────────────────────┘
+                    │ HTTPS
+          ┌─────────▼─────────┐
+          │  OpenCECS 上游 API │
+          └───────────────────┘
+```
+
+## 常见问题
+
+### WebView2 缺失
+
+Tauri 2 在 Windows 上依赖 WebView2 运行时。Windows 10 1803+ 和 Windows 11 通常预装。如果运行时提示缺失，从 [Microsoft](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) 下载安装。
+
+### 端口 8080 被占用
+
+后端默认监听 `:8080`，如果冲突，修改 `backend/api/.env` 中的 `SERVER_ADDR`：
+
+```env
+SERVER_ADDR=:9090
+```
+
+同时修改前端环境变量 `frontend/desktop-app/.env.local`：
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:9090/api
+```
+
+### Rust 编译慢
+
+首次编译 Tauri (Rust) 需要下载和编译依赖，可能需要 5-15 分钟。后续增量编译会快很多。
+
+### Go 第三方依赖
+
+项目使用 `replace` 指令将 Gin 框架指向本地 `third_party/gin` 目录，无需额外下载。其他依赖通过 `go mod` 自动管理。
+
+真实上游补充说明：
+
+- 上游采用统一包裹结构：`{ code, message, data }`
+- 即使 HTTP 状态为 `200`，只要业务 `code != 200`，本地聚合后端也会按错误处理
+- 当前阶段桌面实例默认视为 `is_desktop=true`；以后上游实例接口补齐该字段后，聚合层会直接优先使用它
+- 本地聚合接口已兼容真实路径别名：
+  - `POST /api/auth/login/account`
+  - `GET /api/user/info`
+  - `POST /api/user/token/refresh`
+  - `POST /api/user/logout`
+- 端口映射能力已接入只读和管理接口：
+  - `GET /api/console/instances/:id/port-mappings/overview`
+  - `GET /api/console/instances/:id/port-mappings?protocol=TCP&page=1&page_size=10`
+  - `POST /api/console/instances/:id/port-mappings`
+  - `PATCH /api/console/instances/:id/port-mappings/:mapping_id`
+  - `DELETE /api/console/instances/:id/port-mappings/:mapping_id`
+  - `POST /api/console/instances/:id/port-mappings/batch`
+  - `DELETE /api/console/instances/:id/port-mappings/batch`
+  - 列表接口支持 `protocol` 过滤，默认展示全部协议
+- 如果你在当前网络下直连 `https://www.opencecs.com/api/v1` 遇到 `503 Service Unavailable`，通常是上游 CDN 或边缘代理拦截，不是本地聚合代码崩溃
 
 ## Desktop Client
 
@@ -87,6 +282,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-desktop-client.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\build-desktop-msi.ps1
 ```
 
+这个脚本会完成：
+
+- 复用本地 `tools/wix314`
+- 构建 Tauri Windows MSI
+- 使用本地 updater 私钥生成 `.sig` 签名文件
+
 ### 发布本地更新清单
 
 ```powershell
@@ -109,6 +310,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\serve-updates.ps1
 
 - `http://127.0.0.1:8787/latest.json`
 
+桌面客户端右上角已有 `检查更新` 按钮。当前如果本地发布的版本号和客户端一致，会提示已经是最新版本。
+
 ### 本地升级演练
 
 当前仓库已经切到 `0.1.1`。为了验证从 `0.1.0` 升级到 `0.1.1`，保留了 `0.1.0` 基线归档：
@@ -129,6 +332,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check-local-setup.ps1
 ```
 
 这个脚本只做环境说明，不改任何文件。适合联调前快速确认上游配置和更新源是否已经配好。
+
+## Docs
+
+- `ROADMAP.md`
+- `ARCHITECTURE.md`
+- `API_MAPPING.md`
+- `RELEASE_NOTES.md`
 
 ## Development Standards
 
