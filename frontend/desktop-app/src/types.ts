@@ -28,6 +28,11 @@ export interface LoginInput {
   rememberMe: boolean;
 }
 
+export interface RegisterInput {
+  phone: string;
+  code: string;
+}
+
 export interface InstanceSummary {
   instanceId: string;
   instanceName: string;

@@ -14,3 +14,6 @@ url = "2"
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 dirs = "5"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging"] }

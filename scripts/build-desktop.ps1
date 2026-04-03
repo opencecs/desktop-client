@@ -34,7 +34,8 @@ try {
     Push-Location $backendDir
     $env:GOCACHE = Join-Path $backendDir ".cache\\go-build"
     $env:GOMODCACHE = Join-Path $backendDir ".cache\\gomod"
-    go build -o $backendSidecarExe ./cmd/server 2>&1
+    $env:CGO_ENABLED = "0"
+    go build -ldflags="-s -w" -o $backendSidecarExe ./cmd/server 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Go 后端编译失败" }
     Pop-Location
     Write-Host "  后端 sidecar 已生成: $backendSidecarExe" -ForegroundColor Green

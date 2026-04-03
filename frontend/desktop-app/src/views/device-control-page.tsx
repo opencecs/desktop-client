@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { StatusPill } from "@/components/StatusPill";
-import { useVncPasswordStore, DEFAULT_VNC_PASSWORD } from "@/stores/vnc-thumbnail-store";
 import type { InstanceSummary, BatchActionResult, PortMappingRule } from "@/types";
 
 /** 可执行的批量动作类型 */
@@ -43,11 +42,12 @@ export function DeviceControlPage() {
   const queryClient = useQueryClient();
   const token = useAuthStore((s) => s.session?.accessToken);
 
-  // ── 设备列表查询 ──
+  // ── 设备列表查询（每 10 秒自动刷新，保证实例状态及时更新） ──
   const { data, isLoading, error } = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => consoleApi.fetchDashboard(token),
-    staleTime: 15_000,
+    staleTime: 10_000,
+    refetchInterval: 10_000,
   });
 
   // ── 多选状态 ──
@@ -367,11 +367,21 @@ export function DeviceControlPage() {
             variant="ghost"
             onClick={() => {
               if (selectedIds.size === 0) return;
+              navigate(`/webrtc-screen-wall?ids=${Array.from(selectedIds).join(",")}`);
+            }}
+            disabled={selectedIds.size === 0}
+          >
+            WebRTC投屏
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (selectedIds.size === 0) return;
               navigate(`/screen-wall?ids=${Array.from(selectedIds).join(",")}`);
             }}
             disabled={selectedIds.size === 0}
           >
-            投屏
+            VNC投屏
           </Button>
           <Button variant="ghost" onClick={() => setShowScheduleModal(true)} disabled={selectedIds.size === 0}>
             定时任务
@@ -482,7 +492,27 @@ export function DeviceControlPage() {
 
       {/* 设备网格 */}
       {filteredInstances.length === 0 ? (
-        <div className="dc-empty">{instances.length === 0 ? "暂无设备" : "没有匹配的设备"}</div>
+        <div className="dc-empty">
+          {instances.length === 0 ? (
+            <>
+              <p>暂无设备</p>
+              <p style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8 }}>
+                前往{" "}
+                <a
+                  href="https://www.opencecs.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "var(--accent, #6366f1)", textDecoration: "underline" }}
+                >
+                  www.opencecs.com
+                </a>{" "}
+                购买云端实例
+              </p>
+            </>
+          ) : (
+            "没有匹配的设备"
+          )}
+        </div>
       ) : (
         <div className="dc-device-grid">
           {filteredInstances.map((inst) => (
@@ -525,29 +555,64 @@ interface DeviceCardProps {
  * 单台设备卡片 — 展示设备基础信息及快捷操作
  */
 function DeviceCard({ instance, selected, onToggle, onNavigate, onTerminal, onDesktop, onFiles, portMappingExpanded, onPortMapping, token }: DeviceCardProps) {
-  // 获取保存的 VNC 密码
-  const vncPassword = useVncPasswordStore((s) => s.passwords.get(instance.instanceId) ?? DEFAULT_VNC_PASSWORD);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  // 查询端口映射以获取 VNC 截图
+  // 查询端口映射
   const { data: pmOverview } = useQuery({
     queryKey: ["pm-overview", instance.instanceId],
     queryFn: () => consoleApi.fetchPortMappingOverview(instance.instanceId, token),
-    enabled: !!token && instance.status === "Running",
+    enabled: !!token && instance.status === "running",
     staleTime: 60_000,
   });
-  const { data: pmList } = useQuery({
+  const { data: pmList, isSuccess: pmListReady } = useQuery({
     queryKey: ["pm-list", instance.instanceId],
     queryFn: () => consoleApi.fetchPortMappings(instance.instanceId, token),
-    enabled: !!token && instance.status === "Running",
+    enabled: !!token && instance.status === "running",
     staleTime: 60_000,
   });
-  const vncMapping = pmList?.items?.find(
-    (r: PortMappingRule) => r.privatePort === 5900 && r.protocol.toUpperCase() === "TCP",
-  );
+
   const natIp = pmOverview?.natPublicIp;
 
-  // 仅当有 VNC 密码时才定时截图（密码在用户首次 VNC 连接成功后保存）
-  const canScreenshot = !!natIp && !!vncMapping && !!token && !!vncPassword;
+  // 需要自动创建的端口列表：22(SSH)、5900(VNC)、8077(WebRTC/截图)
+  const REQUIRED_PORTS = useMemo(() => [
+    { privatePort: 22, remark: "SSH" },
+    { privatePort: 5900, remark: "VNC" },
+    { privatePort: 8077, remark: "WebRTC投屏" },
+  ], []);
+
+  // 自动创建缺失的端口映射
+  const autoCreatingRef = useRef(false);
+  useEffect(() => {
+    if (!pmListReady || !token || autoCreatingRef.current) return;
+    const existing = pmList?.items ?? [];
+    const missing = REQUIRED_PORTS.filter(
+      (req) => !existing.some((r: PortMappingRule) => r.privatePort === req.privatePort && r.protocol.toUpperCase() === "TCP"),
+    );
+    if (missing.length === 0) return;
+
+    autoCreatingRef.current = true;
+    consoleApi
+      .batchCreatePortMappings(
+        instance.instanceId,
+        { rules: missing.map((m) => ({ protocol: "tcp", privatePort: m.privatePort, remark: m.remark })) },
+        token,
+      )
+      .catch(() => {})
+      .finally(() => {
+        autoCreatingRef.current = false;
+        queryClient.invalidateQueries({ queryKey: ["pm-list", instance.instanceId] });
+        queryClient.invalidateQueries({ queryKey: ["pm-overview", instance.instanceId] });
+      });
+  }, [pmListReady, pmList, token, instance.instanceId, REQUIRED_PORTS, queryClient]);
+
+  // 找到 8077 端口映射用于截图
+  const webrtcMapping = pmList?.items?.find(
+    (r: PortMappingRule) => r.privatePort === 8077 && r.protocol.toUpperCase() === "TCP",
+  );
+
+  // 通过 debian_screen_control 的截图接口获取设备画面
+  const canScreenshot = !!natIp && !!webrtcMapping;
   const [screenshotTs, setScreenshotTs] = useState(0);
   useEffect(() => {
     if (!canScreenshot) return;
@@ -557,22 +622,33 @@ function DeviceCard({ instance, selected, onToggle, onNavigate, onTerminal, onDe
   }, [canScreenshot]);
 
   const screenshotUrl = (canScreenshot && screenshotTs)
-    ? consoleApi.getScreenshotUrl(instance.instanceId, token, natIp!, vncMapping!.publicPort, vncPassword) + `&_t=${screenshotTs}`
+    ? `http://${natIp}:${webrtcMapping!.publicPort}/screen/snapshot?token=123456&_t=${screenshotTs}`
     : "";
+
+  const [imgError, setImgError] = useState(false);
+  // 当 screenshotUrl 变化时重置错误状态
+  useEffect(() => { setImgError(false); }, [screenshotUrl]);
 
   return (
     <div className={`dc-card ${selected ? "dc-card-selected" : ""} ${portMappingExpanded ? "dc-card-expanded" : ""}`}>
-      {/* 选择框 */}
-      <label className="dc-card-checkbox" onClick={(e) => e.stopPropagation()}>
-        <input type="checkbox" checked={selected} onChange={onToggle} />
-      </label>
-
-      {/* VNC 截图预览 */}
-      {screenshotUrl && (
-        <div className="dc-card-thumbnail" onClick={onDesktop}>
-          <img src={screenshotUrl} alt="VNC 预览" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-        </div>
-      )}
+      {/* 设备截图预览 — 点击进入 WebRTC 投屏 */}
+      <div className="dc-card-thumbnail" onClick={() => navigate(`/webrtc-screen-wall?ids=${instance.instanceId}`)}>
+        {/* 选择框 */}
+        <label className="dc-card-checkbox" onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" checked={selected} onChange={onToggle} />
+        </label>
+        {screenshotUrl && !imgError ? (
+          <img src={screenshotUrl} alt="设备画面" onError={() => setImgError(true)} />
+        ) : (
+          <div className="dc-card-thumb-placeholder">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+              <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M8 21h8M12 17v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+            <span>{instance.status === "running" ? "正在加载画面..." : "设备未运行"}</span>
+          </div>
+        )}
+      </div>
 
       {/* 卡片主体 */}
       <div className="dc-card-body" onClick={onNavigate}>
@@ -595,25 +671,14 @@ function DeviceCard({ instance, selected, onToggle, onNavigate, onTerminal, onDe
           {instance.osName && (
             <div className="dc-card-row">
               <span className="dc-card-label">系统</span>
-              <span>{instance.osName}</span>
+              <span>{instance.osName}{instance.desktopEnv ? ` · ${instance.desktopEnv}` : ""}</span>
             </div>
           )}
-          {instance.memory && (
+          {(instance.memory || instance.diskSize) && (
             <div className="dc-card-row">
-              <span className="dc-card-label">内存</span>
-              <span>{instance.memory}GB</span>
-            </div>
-          )}
-          {instance.networkStatus && (
-            <div className="dc-card-row">
-              <span className="dc-card-label">网络</span>
-              <span className={`dc-net-${instance.networkStatus}`}>{instance.networkStatus === "online" ? "在线" : instance.networkStatus}</span>
-            </div>
-          )}
-          {instance.diskSize && (
-            <div className="dc-card-row">
-              <span className="dc-card-label">磁盘</span>
-              <span>{instance.diskSize}GB</span>
+              {instance.memory && <><span className="dc-card-label">内存</span><span>{instance.memory}GB</span></>}
+              {instance.memory && instance.diskSize && <span style={{ color: "var(--border)", margin: "0 4px" }}>|</span>}
+              {instance.diskSize && <><span className="dc-card-label">磁盘</span><span>{instance.diskSize}GB</span></>}
             </div>
           )}
         </div>

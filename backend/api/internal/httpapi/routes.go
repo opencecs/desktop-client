@@ -23,6 +23,7 @@ func RegisterRoutes(engine *gin.Engine, cfg config.Config, auth *service.AuthSer
 
 	api := engine.Group("/api")
 	{
+		api.POST("/auth/register", func(c *gin.Context) { registerHandler(c, auth) })
 		api.POST("/auth/login", func(c *gin.Context) { loginHandler(c, auth) })
 		api.POST("/auth/login/account", func(c *gin.Context) { loginHandler(c, auth) })
 		api.POST("/auth/refresh", func(c *gin.Context) { refreshHandler(c, auth) })
@@ -75,6 +76,7 @@ func RegisterRoutes(engine *gin.Engine, cfg config.Config, auth *service.AuthSer
 		api.GET("/instance/:id/ssh", func(c *gin.Context) { sshTerminalHandler(c) })
 		api.GET("/instance/:id/serial", func(c *gin.Context) { wsProxyHandler(c, cfg, "serial") })
 		api.GET("/instance/:id/vnc", func(c *gin.Context) { vncTerminalHandler(c) })
+		api.GET("/instance/:id/webrtc", func(c *gin.Context) { webrtcProxyHandler(c) })
 	}
 }
 

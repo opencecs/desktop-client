@@ -43,6 +43,28 @@ type batchDeletePortMappingsRequest struct {
 	MappingIDs []string `json:"mapping_ids" binding:"required"`
 }
 
+type registerRequest struct {
+	Phone string `json:"phone" binding:"required"`
+	Code  string `json:"code" binding:"required"`
+}
+
+func registerHandler(c *gin.Context, auth *service.AuthService) {
+	var req registerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	resp, err := auth.Register(c.Request.Context(), model.RegisterInput{
+		Phone: req.Phone,
+		Code:  req.Code,
+	})
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 func loginHandler(c *gin.Context, auth *service.AuthService) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

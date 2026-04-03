@@ -21,7 +21,7 @@ use std::os::windows::process::CommandExt;
 fn get_downloads_dir() -> Result<String, String> {
     dirs::download_dir()
         .map(|p| p.to_string_lossy().into_owned())
-        .ok_or_else(|| "无法获取下载文件夹路径".into())
+        .ok_or_else(|| "                                                                                                                                                                                                                ".into())
 }
 
 /// Opens a folder in the system file manager
@@ -277,12 +277,65 @@ fn backend_log_stdio() -> Result<Stdio, String> {
     }
 }
 
+fn chrono_now() -> String {
+    use std::time::SystemTime;
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}", now.as_secs())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(BackendProcessState::default())
         .setup(|app| {
-            ensure_backend_started(&app.handle())
-                .map_err(|message| std::io::Error::other(message).into())
+            match ensure_backend_started(&app.handle()) {
+                Ok(()) => Ok(()),
+                Err(message) => {
+                    // 写入错误日志，方便远程排查
+                    let log_dir = std::env::temp_dir().join("device-control-center");
+                    let _ = std::fs::create_dir_all(&log_dir);
+                    let log_path = log_dir.join("startup-error.log");
+                    let _ = std::fs::write(
+                        &log_path,
+                        format!(
+                            "[{}] 后端启动失败: {}\n资源目录: {:?}\n",
+                            chrono_now(),
+                            message,
+                            app.path().resource_dir()
+                        ),
+                    );
+
+                    // 弹窗告知用户
+                    #[cfg(windows)]
+                    {
+                        use std::ffi::OsStr;
+                        use std::os::windows::ffi::OsStrExt;
+                        let text: Vec<u16> = OsStr::new(&format!(
+                            "后端服务启动失败:\n\n{}\n\n日志: {}\n\n请检查安装是否完整，或联系技术支持。",
+                            message,
+                            log_path.display()
+                        ))
+                        .encode_wide()
+                        .chain(std::iter::once(0))
+                        .collect();
+                        let title: Vec<u16> = OsStr::new("Device Control Center")
+                            .encode_wide()
+                            .chain(std::iter::once(0))
+                            .collect();
+                        unsafe {
+                            windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW(
+                                std::ptr::null_mut(),
+                                text.as_ptr(),
+                                title.as_ptr(),
+                                0x10, // MB_ICONERROR
+                            );
+                        }
+                    }
+
+                    Err(std::io::Error::other(message).into())
+                }
+            }
         })
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

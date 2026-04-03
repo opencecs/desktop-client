@@ -33,6 +33,11 @@ func NewHTTPClient(cfg config.Config) *HTTPClient {
 	}
 }
 
+func (c *HTTPClient) Register(ctx context.Context, input model.RegisterInput) (model.AuthResponse, error) {
+	var resp model.AuthResponse
+	return resp, c.doJSON(ctx, http.MethodPost, "/auth/register", "", input, &resp)
+}
+
 func (c *HTTPClient) Login(ctx context.Context, input model.LoginInput) (model.AuthResponse, error) {
 	var resp model.AuthResponse
 	return resp, c.doJSON(ctx, http.MethodPost, "/auth/login/account", "", input, &resp)

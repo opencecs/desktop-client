@@ -8,6 +8,11 @@ type LoginInput struct {
 	RememberMe bool   `json:"remember_me"`
 }
 
+type RegisterInput struct {
+	Phone string `json:"phone"`
+	Code  string `json:"code"`
+}
+
 type AuthResponse struct {
 	UserID     string `json:"user_id"`
 	Username   string `json:"username,omitempty"`

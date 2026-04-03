@@ -319,7 +319,7 @@ select {
   font-size: 0.92rem;
 }
 
-.login-form input,
+.login-form input:not([type="checkbox"]),
 .search-input {
   border: 1px solid var(--border);
   background: rgba(10, 10, 15, 0.8);
@@ -438,6 +438,107 @@ select {
 .search-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
+}
+
+.remember-password-label {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.remember-password-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: unset;
+  accent-color: var(--accent);
+  cursor: pointer;
+  margin: 0;
+  border: none;
+  padding: 0;
+  border-radius: 3px;
+}
+
+.auth-switch-text {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 0;
+}
+
+.auth-switch-link {
+  background: none;
+  border: none;
+  color: var(--accent, #6366f1);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-switch-link:hover {
+  color: #818cf8;
+}
+
+/* 短信验证码输入行 */
+.sms-code-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.sms-code-row > .input-group {
+  flex: 1;
+}
+.sms-code-btn {
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: transparent;
+  color: #818cf8;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s, opacity 0.15s;
+}
+.sms-code-btn:hover:not(:disabled) {
+  border-color: #818cf8;
+}
+.sms-code-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 注册协议勾选 */
+.agreement-checkboxes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.agreement-label {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  min-height: unset !important;
+}
+.agreement-label input[type="checkbox"] {
+  flex-shrink: 0;
+}
+.agreement-label a {
+  color: #818cf8;
+  text-decoration: none;
+}
+.agreement-label a:hover {
+  text-decoration: underline;
 }
 
 .primary-button,
@@ -608,6 +709,14 @@ select {
   font-weight: 700;
   font-size: 0.82rem;
   letter-spacing: 0.5px;
+}
+
+.brand-mark-img {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 10px;
+  object-fit: contain;
 }
 
 .user-avatar {
@@ -2140,14 +2249,15 @@ select {
 
 .dc-card-checkbox {
   position: absolute;
-  top: 14px;
-  left: 12px;
+  top: 8px;
+  left: 8px;
   z-index: 2;
   cursor: pointer;
   padding: 2px;
-  border-radius: 6px;
-  background: rgba(10, 10, 15, 0.6);
-  border: 1px solid rgba(99, 102, 241, 0.1);
+  border-radius: 4px;
+  background: rgba(10, 10, 15, 0.7);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  backdrop-filter: blur(4px);
 }
 
 .dc-card-checkbox input[type="checkbox"] {
@@ -2158,33 +2268,51 @@ select {
 }
 
 .dc-card-body {
-  padding: 14px 16px 12px 44px;
+  padding: 10px 14px 8px 14px;
   cursor: pointer;
 }
 
-/* VNC 缩略图 */
+/* 设备截图缩略图 */
 .dc-card-thumbnail {
-  margin: 0 16px 0 44px;
+  position: relative;
+  margin: 0;
   cursor: pointer;
-  border-radius: 4px;
   overflow: hidden;
-  border: 1px solid rgba(99, 102, 241, 0.12);
-  background: #0a0a0f;
-  max-height: 180px;
+  background: #080e1a;
+  aspect-ratio: 16 / 9;
 }
 .dc-card-thumbnail img {
   width: 100%;
-  height: auto;
+  height: 100%;
   display: block;
-  object-fit: contain;
+  object-fit: cover;
+}
+.dc-card-thumbnail:hover {
+  opacity: 0.88;
+}
+.dc-card-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #0a1628 0%, #0d1f36 100%);
+  color: #2e4460;
+  font-size: 11px;
+  user-select: none;
+  gap: 6px;
+}
+.dc-card-thumb-placeholder svg {
+  opacity: 0.5;
 }
 
 .dc-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
 .dc-card-name {
@@ -2210,7 +2338,7 @@ select {
 .dc-card-meta {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
 }
 
 .dc-card-row {
@@ -2649,6 +2777,19 @@ select {
   gap: 12px;
   height: calc(100vh - 120px);
   animation: pageFadeIn 0.32s ease-out;
+}
+
+@keyframes webrtcSpin {
+  to { transform: rotate(360deg); }
+}
+
+.webrtc-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(99, 102, 241, 0.2);
+  border-top-color: var(--accent, #6366f1);
+  border-radius: 50%;
+  animation: webrtcSpin 0.8s linear infinite;
 }
 
 .sw-empty {

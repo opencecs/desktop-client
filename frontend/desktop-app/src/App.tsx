@@ -12,6 +12,7 @@ import { TerminalPage } from "./views/terminal-page";
 import { GroupTerminalPage } from "./views/group-terminal-page";
 import { ModelManagerPage } from "./views/model-manager-page";
 import { SyncControlPage } from "./views/sync-control-page";
+import { WebRtcScreenWallPage } from "./views/webrtc-screen-wall-page";
 import { useAuthStore } from "./stores/auth-store";
 
 /**
@@ -88,6 +89,7 @@ export default function App() {
         <Route path="files/:instanceId" element={<FileManagerPage />} />
         <Route path="group-terminal" element={<GroupTerminalPage />} />
         <Route path="sync-control" element={<SyncControlPage />} />
+        <Route path="webrtc-screen-wall" element={<WebRtcScreenWallPage />} />
         <Route path="models" element={<ModelManagerPage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />

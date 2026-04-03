@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -121,6 +122,8 @@ func vncTerminalHandler(c *gin.Context) {
 
 	// ── 双向透明桥接 ──
 	// noVNC 使用 WebSocket 二进制帧封装 RFB 数据，桥接层只做帧解包/重包
+	// 两个 goroutine 共享同一个 conn 写端，必须用互斥锁序列化，防止帧头和 payload 交织损坏
+	var connWriteMu sync.Mutex
 	done := make(chan struct{}, 2)
 
 	// WebSocket → VNC TCP（解包 WebSocket 帧，取 payload 写入 TCP）
@@ -145,7 +148,9 @@ func vncTerminalHandler(c *gin.Context) {
 				}
 			}
 			if op == wsOpcodePing {
+				connWriteMu.Lock()
 				wsWriteFrame(conn, wsOpcodePong, data)
+				connWriteMu.Unlock()
 			}
 		}
 		vncConn.Close()
@@ -160,7 +165,10 @@ func vncTerminalHandler(c *gin.Context) {
 			n, rerr := vncConn.Read(buf)
 			if n > 0 {
 				totalBytes += n
-				if werr := wsWriteFrameChecked(conn, wsOpcodeBinary, buf[:n]); werr != nil {
+				connWriteMu.Lock()
+				werr := wsWriteFrameChecked(conn, wsOpcodeBinary, buf[:n])
+				connWriteMu.Unlock()
+				if werr != nil {
 					logger.Info("TCP→WS: 写入 WebSocket 失败", "bytes_so_far", totalBytes, "err", werr)
 					break
 				}

@@ -7,6 +7,7 @@ import { useUiStore } from "@/stores/ui-store";
 import { consoleApi } from "@/api/console";
 import { EditProfileModal } from "@/components/EditProfileModal";
 import { UpdateChannelModal } from "@/components/UpdateChannelModal";
+import moyuntengLogo from "@/assets/moyunteng-logo.ico";
 
 /** 侧边栏导航项配置 */
 const navItems = [
@@ -22,7 +23,8 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/instances")) return "设备详情";
   if (pathname.startsWith("/terminal")) return "终端";
   if (pathname.startsWith("/files")) return "文件管理";
-  if (pathname.startsWith("/screen-wall")) return "投屏墙";
+  if (pathname.startsWith("/screen-wall")) return "VNC 投屏墙";
+  if (pathname.startsWith("/webrtc-screen-wall")) return "WebRTC 投屏墙";
   if (pathname.startsWith("/group-terminal")) return "群控终端";
   return "";
 }
@@ -142,7 +144,7 @@ export function AppShell() {
     <div className={`app-shell ${sidebarCollapsed ? "is-collapsed" : ""}`}>
       <aside className="side-rail">
         <div className="brand">
-          <div className="brand-mark">DC</div>
+          <img src={moyuntengLogo} alt="魔云腾" className="brand-mark-img" />
           {!sidebarCollapsed && (
             <div className="brand-text">
               <strong>DCC</strong>

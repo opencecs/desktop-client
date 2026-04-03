@@ -15,6 +15,10 @@ func NewAuthService(client upstream.Provider) *AuthService {
 	return &AuthService{client: client}
 }
 
+func (s *AuthService) Register(ctx context.Context, input model.RegisterInput) (model.AuthResponse, error) {
+	return s.client.Register(ctx, input)
+}
+
 func (s *AuthService) Login(ctx context.Context, input model.LoginInput) (model.AuthResponse, error) {
 	return s.client.Login(ctx, input)
 }

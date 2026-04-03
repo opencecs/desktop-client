@@ -40,6 +40,7 @@ import type {
   SwitchOsResult,
   InstanceSummary,
   LoginInput,
+  RegisterInput,
 } from "@/types";
 
 const consoleLogger = createLogger("console-api");
@@ -271,6 +272,21 @@ function normalizePortMappingBatchDeleteResult(payload: any): PortMappingBatchDe
 }
 
 export const consoleApi = {
+  /** 注册 */
+  async register(payload: RegisterInput): Promise<AuthSession> {
+    consoleLogger.debug("register:start", { phone: payload.phone });
+    const response = await requestJson<any>("/auth/register", {
+      method: "POST",
+      json: {
+        phone: payload.phone,
+        code: payload.code,
+      },
+    });
+    const session = normalizeSession(response, "api");
+    consoleLogger.debug("register:success");
+    return session;
+  },
+
   /** 登录 — 优先尝试 /auth/login/account，404 时回退到 /auth/login */
   async login(payload: LoginInput): Promise<AuthSession> {
     try {

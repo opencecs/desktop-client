@@ -8,6 +8,7 @@ import (
 )
 
 type Provider interface {
+    Register(ctx context.Context, input model.RegisterInput) (model.AuthResponse, error)
     Login(ctx context.Context, input model.LoginInput) (model.AuthResponse, error)
     Refresh(ctx context.Context, token, bearer string) (model.AuthResponse, error)
     Me(ctx context.Context, bearer string) (model.MeResponse, error)
