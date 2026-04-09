@@ -106,10 +106,13 @@ export async function requestJson<T>(path: string, options: RequestInitWithJson 
   }
 
   if (!response.ok) {
-    const message =
+    const serverMessage =
       typeof payload === "object" && payload && "message" in payload
         ? String((payload as { message?: string }).message)
-        : `请求失败 (${response.status})`;
+        : "";
+    // 后端透传的 upstream 技术错误对用户无意义，改用友好提示
+    const isUpstreamTechnical = /^upstream\s/i.test(serverMessage);
+    const message = (serverMessage && !isUpstreamTechnical) ? serverMessage : friendlyHttpMessage(response.status);
     apiLogger.warn("request:http-error", { path, status: response.status, message });
     throw new ApiError("http", message, response.status, payload);
   }
@@ -152,6 +155,26 @@ function safeParseJson(text: string) {
     return JSON.parse(text);
   } catch (error) {
     throw new ApiError("parse", "响应解析失败", undefined, error);
+  }
+}
+
+/** 将 HTTP 状态码映射为用户友好的中文提示 */
+function friendlyHttpMessage(status: number): string {
+  switch (status) {
+    case 400: return "请求参数有误，请检查后重试";
+    case 403: return "没有权限执行此操作";
+    case 404: return "请求的资源不存在";
+    case 408: return "服务器处理超时，请稍后重试";
+    case 409: return "操作冲突，请刷新后重试";
+    case 429: return "操作过于频繁，请稍后再试";
+    case 500: return "服务器内部错误，请稍后重试";
+    case 502: return "服务器暂时不可用，请稍后重试";
+    case 503: return "服务正在维护中，请稍后重试";
+    case 504: return "服务器响应超时，请稍后重试";
+    default:
+      if (status >= 500) return "服务器异常，请稍后重试";
+      if (status >= 400) return "请求失败，请稍后重试";
+      return "请求异常，请稍后重试";
   }
 }
 

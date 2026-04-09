@@ -147,15 +147,67 @@ select {
   animation: drift 24s ease-in-out infinite alternate;
 }
 
+/* 居中登录布局（替代原双栏） */
+.login-centered {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.login-centered .login-panel {
+  width: 100%;
+  max-width: 420px;
+}
+
+/* 登录页品牌区 */
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.login-brand-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.login-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.login-brand-text strong {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.login-brand-text span {
+  font-size: 0.78rem;
+  color: var(--text-3);
+}
+
+.login-divider {
+  height: 1px;
+  background: var(--border);
+}
+
+/* 保留旧 login-grid 兼容（已不再使用但避免残留引用报错） */
 .login-grid {
   position: relative;
   z-index: 1;
   min-height: 100vh;
-  display: grid;
-  grid-template-columns: 1.25fr 0.9fr;
-  gap: 28px;
-  padding: 40px;
+  display: flex;
   align-items: center;
+  justify-content: center;
+  padding: 40px;
 }
 
 .login-hero,
@@ -864,7 +916,8 @@ select {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .top-bar {
@@ -909,6 +962,50 @@ select {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.update-check-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all 0.2s var(--ease-out);
+}
+
+.update-check-button:hover:not(:disabled) {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent-light);
+}
+
+.update-check-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.update-version-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.update-version-row span {
+  color: var(--text-2);
+}
+
+.update-notes {
+  max-height: 120px;
+  overflow-y: auto;
+  padding: var(--space-2) 0;
 }
 
 .user-chip {
@@ -1427,7 +1524,7 @@ select {
 .detail-grid,
 .two-column-grid {
   display: grid;
-  grid-template-columns: 1.2fr 0.8fr;
+  grid-template-columns: 1fr 1fr;
   gap: 18px;
 }
 
@@ -1752,6 +1849,63 @@ select {
   align-self: stretch;
   justify-content: flex-end;
   align-items: center;
+}
+
+/* ── 详情页按钮分组 ── */
+.detail-action-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.detail-action-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 6px;
+}
+
+/* ── 详情页信息表格 ── */
+.detail-info-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 16px;
+}
+
+.detail-info-item:last-child {
+  border-bottom: none;
+}
+
+.detail-info-item:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.detail-info-label {
+  color: var(--text-3);
+  font-size: 0.86rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.detail-info-value {
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 500;
+  text-align: right;
+  word-break: break-all;
+}
+
+.detail-info-value.text-muted {
+  color: var(--text-3);
+  font-weight: 400;
 }
 
 .top-bar-note {
@@ -3427,6 +3581,34 @@ select {
   padding: 20px;
 }
 
+/* 友好的全页错误状态 */
+.page-error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: calc(100vh - 200px);
+  color: var(--text-2);
+  text-align: center;
+  animation: pageFadeIn 0.32s ease-out;
+  padding: 40px 20px;
+}
+
+.page-error-state h3 {
+  margin: 20px 0 8px;
+  color: var(--text-1);
+  font-weight: 600;
+  font-size: 1.15rem;
+}
+
+.page-error-state p {
+  color: var(--text-3);
+  font-size: 0.88rem;
+  margin: 0 0 20px;
+  max-width: 360px;
+  line-height: 1.6;
+}
+
 /* =============================================
    文件管理器
    ============================================= */
@@ -3963,6 +4145,180 @@ select {
 
 .remote-desktop-container canvas {
   display: block;
+}
+
+/* ═══════════════════════════════════════════════════
+   群控页面 (GroupControlPage)
+   ═══════════════════════════════════════════════════ */
+
+.gc-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: calc(100vh - 120px);
+  animation: pageFadeIn 0.32s ease-out;
+}
+
+.gc-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: calc(100vh - 200px);
+  color: var(--text-2);
+  text-align: center;
+  animation: pageFadeIn 0.32s ease-out;
+}
+
+/* 设备面板 */
+.gc-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  height: 100%;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.gc-panel:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.gc-panel-master {
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.25);
+}
+
+/* 设备标签 */
+.gc-panel-label {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.55);
+  color: #e0e8f0;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 主控徽章 */
+.gc-master-badge {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* 从设备半透明遮罩 */
+.gc-slave-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  background: rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gc-slave-overlay:hover {
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.gc-slave-overlay-hint {
+  opacity: 0;
+  color: #e0e8f0;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 4px 12px;
+  border-radius: 6px;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.gc-slave-overlay:hover .gc-slave-overlay-hint {
+  opacity: 1;
+}
+
+/* 同步开关按钮 */
+.gc-sync-toggle {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.gc-sync-on {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.gc-sync-off {
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-3);
+  border-color: var(--border);
+}
+
+/* 文本广播输入框 */
+.gc-broadcast-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gc-broadcast-input input {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-1);
+  font-size: 0.8rem;
+  width: 220px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.gc-broadcast-input input:focus {
+  border-color: var(--accent);
+}
+
+.gc-broadcast-input input::placeholder {
+  color: var(--text-3);
+}
+
+.gc-broadcast-input button {
+  padding: 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.gc-broadcast-input button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 连接状态点 */
+.gc-status-connected {
+  color: #4ade80;
 }
 
 .sw-panel-vnc {

@@ -7,11 +7,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
-
-/**
- * 登录页面
- * 包含品牌展示区（左）和登录表单（右）
- */
+import moyuntengLogo from "@/assets/moyunteng-logo.ico";
+import { openExternal } from "@/lib/open-external";
 
 const REMEMBER_KEY = "dcc.login.remembered";
 
@@ -117,18 +114,19 @@ export function LoginPage() {
   return (
     <div className="login-screen">
       <div className="login-backdrop" />
-      <div className="login-grid">
-        {/* 左侧品牌展示区 */}
-        <section className="login-hero">
-          <div className="eyebrow">Device Control Center</div>
-          <h1>统一管理你的云端实例与桌面控制。</h1>
-          <p>
-            集实例管理、远程桌面、群控操作于一体的现代化控制台。
-          </p>
-        </section>
-
-        {/* 右侧面板 */}
+      <div className="login-centered">
         <section className="login-panel">
+          {/* 品牌标识 */}
+          <div className="login-brand">
+            <img src={moyuntengLogo} alt="DCC" className="login-brand-logo" />
+            <div className="login-brand-text">
+              <strong>Device Control Center</strong>
+              <span>云端实例管理与远程控制平台</span>
+            </div>
+          </div>
+
+          <div className="login-divider" />
+
           <div className="panel-title">
             <h2>{mode === "login" ? "登录" : "注册"}</h2>
           </div>
@@ -219,7 +217,11 @@ export function LoginPage() {
                     checked={regForm.agreeAll}
                     onChange={(e) => setRegForm((prev) => ({ ...prev, agreeAll: e.target.checked }))}
                   />
-                  <span>我已阅读并同意 <a href="https://www.opencecs.com/agreement/user" target="_blank" rel="noreferrer">《用户协议》</a>、<a href="https://www.opencecs.com/agreement/privacy" target="_blank" rel="noreferrer">《隐私政策》</a>、<a href="https://www.opencecs.com/agreement/service" target="_blank" rel="noreferrer">《产品服务协议》</a></span>
+                  <span>我已阅读并同意{" "}
+                  <a href="#" onClick={(e) => { e.preventDefault(); openExternal("https://www.opencecs.com/agreement/user"); }}>《用户协议》</a>、
+                  <a href="#" onClick={(e) => { e.preventDefault(); openExternal("https://www.opencecs.com/agreement/privacy"); }}>《隐私政策》</a>、
+                  <a href="#" onClick={(e) => { e.preventDefault(); openExternal("https://www.opencecs.com/agreement/service"); }}>《产品服务协议》</a>
+                </span>
                 </label>
               </div>
 

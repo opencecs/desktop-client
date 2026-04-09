@@ -14,10 +14,14 @@ import React, {
   useState,
 } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/auth-store";
+import { consoleApi } from "@/api/console";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useEnsurePortMapping } from "@/lib/use-ensure-port-mapping";
+import type { BatchActionResult } from "@/types";
 
 /** debian_screen_control 服务端口 */
 const WEBRTC_PORT = 8077;
@@ -123,7 +127,7 @@ function DevicePanel({
             border: "none",
             background: "#0a1628",
           }}
-          allow="autoplay; camera; microphone; fullscreen"
+          allow="autoplay; camera; microphone; fullscreen; clipboard-read; clipboard-write"
           onLoad={onIframeLoad}
         />
       )}
@@ -140,15 +144,30 @@ export function WebRtcScreenWallPage() {
   const [searchParams] = useSearchParams();
   const authToken = useAuthStore((s) => s.session?.accessToken) ?? "";
 
-  // ── 从 URL 解析设备 ID ──
+  // ── 当 URL 没有 ids 参数时，自动拉取全部运行中的设备 ──
+  const urlIds = searchParams.get("ids");
+  const hasUrlIds = urlIds !== null && urlIds.trim() !== "";
+
+  const { data: dashboardData, isLoading: dashLoading } = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: () => consoleApi.fetchDashboard(authToken),
+    staleTime: 10_000,
+    enabled: !hasUrlIds,
+  });
+
+  // ── 从 URL 或 dashboard 解析设备 ID ──
   const instanceIds = useMemo(() => {
-    const raw = searchParams.get("ids") ?? "";
-    const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
-    if (ids.length > MAX_SCREENS) {
-      return ids.slice(0, MAX_SCREENS);
+    if (hasUrlIds) {
+      const ids = urlIds!.split(",").map((s) => s.trim()).filter(Boolean);
+      return ids.length > MAX_SCREENS ? ids.slice(0, MAX_SCREENS) : ids;
     }
-    return ids;
-  }, [searchParams]);
+    // 无 ids 参数时使用全部运行中的设备
+    const items = dashboardData?.items ?? [];
+    const runningIds = items
+      .filter((inst: any) => inst.status === "running")
+      .map((inst: any) => inst.instanceId);
+    return runningIds.length > MAX_SCREENS ? runningIds.slice(0, MAX_SCREENS) : runningIds;
+  }, [searchParams, hasUrlIds, urlIds, dashboardData]);
 
   // ── 布局 ──
   const [cols, setCols] = useState<LayoutCols>(() => {
@@ -161,12 +180,45 @@ export function WebRtcScreenWallPage() {
   // ── 全屏设备 ──
   const [fullscreenId, setFullscreenId] = useState<string | null>(null);
 
+  // ── 批量操作 ──
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncResult, setSyncResult] = useState<BatchActionResult | null>(null);
+
+  const syncAction = useCallback(async (action: "start" | "stop" | "reboot") => {
+    if (instanceIds.length === 0) return;
+    setSyncLoading(true);
+    setSyncResult(null);
+    try {
+      let result: BatchActionResult;
+      if (action === "start") {
+        result = await consoleApi.batchStartInstances(instanceIds, authToken);
+      } else if (action === "stop") {
+        result = await consoleApi.batchStopInstances(instanceIds, authToken);
+      } else {
+        result = await consoleApi.batchRebootInstances(instanceIds, authToken);
+      }
+      setSyncResult(result);
+    } catch (err) {
+      setSyncResult({ total: instanceIds.length, succeeded: 0, failed: instanceIds.length, items: [] });
+    } finally {
+      setSyncLoading(false);
+    }
+  }, [instanceIds, authToken]);
+
+  if (!hasUrlIds && dashLoading) {
+    return (
+      <div style={{ padding: 40 }}>
+        <LoadingSpinner label="加载设备列表..." />
+      </div>
+    );
+  }
+
   if (instanceIds.length === 0) {
     return (
       <div style={{ padding: 40 }}>
-        <Alert type="warning" message="未选择任何设备，请在 URL 中指定 ?ids=CECS-001,CECS-002" />
-        <Button variant="ghost" onClick={() => navigate(-1)} style={{ marginTop: 16 } as React.CSSProperties}>
-          返回
+        <Alert type="warning" message={hasUrlIds ? "未选择任何设备，请在 URL 中指定 ?ids=CECS-001,CECS-002" : "暂无运行中的设备，请先在设备管理中启动设备"} />
+        <Button variant="ghost" onClick={() => navigate("/")} style={{ marginTop: 16 } as React.CSSProperties}>
+          返回设备管理
         </Button>
       </div>
     );
@@ -180,7 +232,7 @@ export function WebRtcScreenWallPage() {
       {/* 顶部工具栏 — 复用 VNC 投屏的 sw-* 样式 */}
       <div className="sw-toolbar">
         <div className="sw-toolbar-left">
-          <Button variant="ghost" onClick={() => navigate("/devices")}>← 返回群控</Button>
+          <Button variant="ghost" onClick={() => navigate("/")}>← 返回设备管理</Button>
           <span className="sw-toolbar-count">WebRTC 投屏 {instanceIds.length} 台设备</span>
         </div>
 
@@ -201,8 +253,24 @@ export function WebRtcScreenWallPage() {
           {fullscreenId && (
             <Button variant="ghost" onClick={() => setFullscreenId(null)}>退出全屏</Button>
           )}
+          {/* 批量操作按钮 */}
+          <div className="sw-sync-actions">
+            <Button variant="primary" onClick={() => syncAction("start")} disabled={syncLoading}>全部开机</Button>
+            <Button variant="danger" onClick={() => syncAction("stop")} disabled={syncLoading}>全部关机</Button>
+            <Button variant="ghost" onClick={() => syncAction("reboot")} disabled={syncLoading}>全部重启</Button>
+          </div>
         </div>
       </div>
+
+      {/* 批量操作结果提示 */}
+      {syncResult && (
+        <Alert
+          type={syncResult.failed === 0 ? "success" : "error"}
+          message={`操作完成：成功 ${syncResult.succeeded} 台，失败 ${syncResult.failed} 台`}
+          dismissible
+          onDismiss={() => setSyncResult(null)}
+        />
+      )}
 
       {/* ── 投屏网格 ── */}
       <div

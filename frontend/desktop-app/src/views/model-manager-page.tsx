@@ -228,7 +228,28 @@ export function ModelManagerPage() {
 
   // 错误
   if (error) {
-    return <div className="page-error"><Alert type="error" message={error instanceof Error ? error.message : "加载失败"} /></div>;
+    const isNetworkError = error instanceof Error && (
+      error.message.includes("fetch") || error.message.includes("network") ||
+      error.message.includes("ECONNREFUSED") || error.message.includes("Failed") ||
+      error.message.includes("timeout") || error.message.includes("aborted")
+    );
+    return (
+      <div className="page-error-state">
+        <svg width="56" height="56" viewBox="0 0 56 56" fill="none" style={{ opacity: 0.3 }}>
+          <circle cx="28" cy="28" r="24" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+          <path d="M20 28h16M28 20v16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.5" />
+        </svg>
+        <h3>{isNetworkError ? "无法连接到服务器" : "加载模型管理数据失败"}</h3>
+        <p>
+          {isNetworkError
+            ? "请检查后端服务是否已启动，以及网络连接是否正常"
+            : (error instanceof Error ? error.message : "发生未知错误，请稍后重试")}
+        </p>
+        <Button variant="primary" onClick={() => window.location.reload()}>
+          重新加载
+        </Button>
+      </div>
+    );
   }
 
   return (

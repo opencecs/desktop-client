@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { formatDateTime, initials } from "@/lib/format";
-import { checkAndInstallUpdate } from "@/lib/updater";
+import { checkAndInstallUpdateFromRemote, checkVersionFromRemote, type VersionCheckResult } from "@/lib/updater";
 import { useAuthStore } from "@/stores/auth-store";
 import { useUiStore } from "@/stores/ui-store";
 import { consoleApi } from "@/api/console";
 import { EditProfileModal } from "@/components/EditProfileModal";
 import { UpdateChannelModal } from "@/components/UpdateChannelModal";
+import { UpdateConfirmModal } from "@/components/UpdateConfirmModal";
 import moyuntengLogo from "@/assets/moyunteng-logo.ico";
 
 /** 侧边栏导航项配置 */
 const navItems = [
   { to: "/", label: "设备管理", end: true },
+  { to: "/webrtc-screen-wall", label: "投屏墙" },
+  { to: "/group-control", label: "群控" },
   { to: "/models", label: "模型管理" },
 ];
 
@@ -24,8 +27,9 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/terminal")) return "终端";
   if (pathname.startsWith("/files")) return "文件管理";
   if (pathname.startsWith("/screen-wall")) return "VNC 投屏墙";
-  if (pathname.startsWith("/webrtc-screen-wall")) return "WebRTC 投屏墙";
+  if (pathname.startsWith("/webrtc-screen-wall")) return "投屏墙";
   if (pathname.startsWith("/group-terminal")) return "群控终端";
+  if (pathname.startsWith("/group-control")) return "群控";
   return "";
 }
 
@@ -44,6 +48,21 @@ function NavIcon({ type }: { type: string }) {
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
       <rect x="2" y="3" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="1.5" />
       <path d="M6 16h6M9 13v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+  if (type === "投屏墙") return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <rect x="1" y="1" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="10" y="1" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="1" y="10" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="10" y="10" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+  if (type === "群控") return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <rect x="2" y="2" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M6 15h6M9 12v3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M6 6l2 2-2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
   return (
@@ -70,6 +89,7 @@ export function AppShell() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [updateChannelOpen, setUpdateChannelOpen] = useState(false);
+  const [pendingUpdate, setPendingUpdate] = useState<VersionCheckResult | null>(null);
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const profileRef = useRef<HTMLDivElement | null>(null);
 
@@ -94,6 +114,32 @@ export function AppShell() {
     window.addEventListener("mousedown", onPointerDown);
     return () => window.removeEventListener("mousedown", onPointerDown);
   }, [profileOpen]);
+
+  /** 启动后自动检查更新（延迟 3 秒，避免阻塞首屏） */
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      console.log("[AppShell] 自动检查版本更新");
+      void onAutoCheckUpdate();
+    }, 3000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** 启动后自动检查更新，发现新版本先提示用户确认 */
+  const onAutoCheckUpdate = async () => {
+    setUpdateBusy(true);
+    setUpdateMessage("正在自动检查更新...");
+    const result = await checkVersionFromRemote();
+    if (result.hasUpdate) {
+      setPendingUpdate(result);
+      setUpdateMessage(`发现新版本 ${result.latestVersion}，请确认是否更新。`);
+      setUpdateBusy(false);
+      return;
+    }
+
+    setUpdateMessage(result.message);
+    setUpdateBusy(false);
+  };
 
   /** 路由变更时记录日志 */
   useEffect(() => {
@@ -133,11 +179,38 @@ export function AppShell() {
     }
   };
 
+  /** 点击版本更新：先检查，再提示用户确认 */
   const onCheckUpdate = async () => {
     setUpdateBusy(true);
-    const result = await checkAndInstallUpdate((state) => setUpdateMessage(state.message));
+    setUpdateMessage("正在检查更新...");
+    const result = await checkVersionFromRemote();
+    if (result.hasUpdate) {
+      setPendingUpdate(result);
+      setUpdateMessage(`发现新版本 ${result.latestVersion}，请确认是否更新。`);
+      setUpdateBusy(false);
+      return;
+    }
+
     setUpdateMessage(result.message);
     setUpdateBusy(false);
+  };
+
+  /** 用户确认后才开始安装更新 */
+  const onConfirmInstallUpdate = async () => {
+    if (!pendingUpdate) return;
+
+    setUpdateBusy(true);
+    setUpdateMessage(`开始安装新版本 ${pendingUpdate.latestVersion}...`);
+    const result = await checkAndInstallUpdateFromRemote((state) => setUpdateMessage(state.message));
+    setUpdateMessage(result.message);
+    setPendingUpdate(null);
+    setUpdateBusy(false);
+  };
+
+  /** 用户拒绝更新，忽略本次 */
+  const onIgnoreUpdate = () => {
+    setPendingUpdate(null);
+    setUpdateMessage("已忽略本次更新。");
   };
 
   return (
@@ -188,6 +261,19 @@ export function AppShell() {
           </div>
 
           <div className="top-bar-actions">
+            <button
+              className="ghost-button update-check-button"
+              type="button"
+              onClick={onCheckUpdate}
+              disabled={updateBusy}
+              title="检查版本更新"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M8 1v6l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M1 8a7 7 0 1 0 14 0A7 7 0 1 0 1 8" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+              {updateBusy ? "检查中..." : "版本更新"}
+            </button>
             <div className="profile-anchor" ref={profileRef}>
               <button
                 className="avatar-trigger"
@@ -259,6 +345,16 @@ export function AppShell() {
           user={session.user}
           onClose={() => setEditProfileOpen(false)}
           onUpdated={onProfileUpdated}
+        />
+      )}
+
+      {/* 更新确认弹窗：同意后才执行安装 */}
+      {pendingUpdate && (
+        <UpdateConfirmModal
+          versionInfo={pendingUpdate}
+          installing={updateBusy}
+          onConfirm={onConfirmInstallUpdate}
+          onClose={onIgnoreUpdate}
         />
       )}
     </div>

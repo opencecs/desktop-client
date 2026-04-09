@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { consoleApi } from "@/api/console";
 import { useAuthStore } from "@/stores/auth-store";
+import { openExternal } from "@/lib/open-external";
 import { useDeviceGroupsStore, type DeviceGroup } from "@/stores/device-groups-store";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
@@ -290,7 +291,28 @@ export function DeviceControlPage() {
   }
 
   if (error) {
-    return <div className="page-error"><Alert type="error" message={error instanceof Error ? error.message : "加载失败"} /></div>;
+    const isNetworkError = error instanceof Error && (
+      error.message.includes("fetch") || error.message.includes("network") ||
+      error.message.includes("ECONNREFUSED") || error.message.includes("Failed") ||
+      error.message.includes("timeout") || error.message.includes("aborted")
+    );
+    return (
+      <div className="page-error-state">
+        <svg width="56" height="56" viewBox="0 0 56 56" fill="none" style={{ opacity: 0.3 }}>
+          <circle cx="28" cy="28" r="24" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+          <path d="M20 28h16M28 20v16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.5" />
+        </svg>
+        <h3>{isNetworkError ? "无法连接到服务器" : "加载设备列表失败"}</h3>
+        <p>
+          {isNetworkError
+            ? "请检查后端服务是否已启动，以及网络连接是否正常"
+            : (error instanceof Error ? error.message : "发生未知错误，请稍后重试")}
+        </p>
+        <Button variant="primary" onClick={() => window.location.reload()}>
+          重新加载
+        </Button>
+      </div>
+    );
   }
 
   return (
@@ -372,6 +394,16 @@ export function DeviceControlPage() {
             disabled={selectedIds.size === 0}
           >
             WebRTC投屏
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (selectedIds.size === 0) return;
+              navigate(`/group-control?ids=${Array.from(selectedIds).join(",")}`);
+            }}
+            disabled={selectedIds.size === 0}
+          >
+            群控
           </Button>
           <Button
             variant="ghost"
@@ -499,10 +531,15 @@ export function DeviceControlPage() {
               <p style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8 }}>
                 前往{" "}
                 <a
-                  href="https://www.opencecs.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "var(--accent, #6366f1)", textDecoration: "underline" }}
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const url = token
+                      ? `https://www.opencecs.com/console?access_token=${encodeURIComponent(token)}`
+                      : "https://www.opencecs.com/console";
+                    openExternal(url);
+                  }}
+                  style={{ color: "var(--accent, #6366f1)", textDecoration: "underline", cursor: "pointer" }}
                 >
                   www.opencecs.com
                 </a>{" "}

@@ -2,12 +2,17 @@
 
 use serde::Serialize;
 use std::{
+    fs,
     fs::File,
     io::{Read, Write},
-    net::{SocketAddr, TcpStream},
-    path::PathBuf,
+    net::{SocketAddr, TcpListener, TcpStream},
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    thread,
     time::{Duration, Instant},
 };
 use tauri::Manager;
@@ -22,6 +27,34 @@ fn get_downloads_dir() -> Result<String, String> {
     dirs::download_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .ok_or_else(|| "                                                                                                                                                                                                                ".into())
+}
+
+/// Opens a URL in the system default browser
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {e}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {e}"))?;
+    }
+    Ok(())
 }
 
 /// Opens a folder in the system file manager
@@ -72,6 +105,52 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[tauri::command]
 async fn check_update_from(app: tauri::AppHandle, endpoint: String) -> Result<UpdateResult, String> {
+    run_update_from_endpoint(&app, endpoint).await
+}
+
+#[tauri::command]
+async fn check_update_from_zip(app: tauri::AppHandle, zip_url: String) -> Result<UpdateResult, String> {
+    log_updater("check_update_from_zip:start", &format!("zip_url={zip_url}"));
+    let prepared = tauri::async_runtime::spawn_blocking(move || prepare_zip_update_bundle(&zip_url))
+        .await
+        .map_err(|e| format!("解析更新压缩包任务失败: {e}"))??;
+    log_updater(
+        "check_update_from_zip:prepared",
+        &format!(
+            "bundle_dir={} latest_json={} msi={}",
+            prepared.bundle_dir.display(),
+            prepared.latest_json_path.display(),
+            prepared.msi_path.display()
+        ),
+    );
+
+    let (port, stop_flag, server_handle) =
+        spawn_local_update_server(prepared.bundle_dir.clone()).map_err(|e| format!("启动本地更新服务失败: {e}"))?;
+    log_updater("check_update_from_zip:server", &format!("port={port}"));
+
+    let run_result = async {
+        rewrite_manifest_url(&prepared.latest_json_path, &prepared.msi_path, &prepared.bundle_dir, port)?;
+        let latest_rel = to_relative_url_path(&prepared.latest_json_path, &prepared.bundle_dir)?;
+        let endpoint = format!("http://127.0.0.1:{port}/{latest_rel}");
+        log_updater("check_update_from_zip:endpoint", &endpoint);
+        run_update_from_endpoint(&app, endpoint).await
+    }
+    .await;
+
+    stop_flag.store(true, Ordering::Relaxed);
+    let _ = server_handle.join();
+    let _ = fs::remove_dir_all(&prepared.bundle_dir);
+
+    if let Err(ref e) = run_result {
+        log_updater("check_update_from_zip:error", e);
+    } else {
+        log_updater("check_update_from_zip:success", "updated or latest");
+    }
+
+    run_result
+}
+
+async fn run_update_from_endpoint(app: &tauri::AppHandle, endpoint: String) -> Result<UpdateResult, String> {
     let url: url::Url = endpoint.parse().map_err(|e| format!("无效的更新地址: {e}"))?;
 
     let updater = app
@@ -102,6 +181,262 @@ async fn check_update_from(app: tauri::AppHandle, endpoint: String) -> Result<Up
             version: None,
         }),
     }
+}
+
+struct PreparedZipBundle {
+    bundle_dir: PathBuf,
+    latest_json_path: PathBuf,
+    msi_path: PathBuf,
+}
+
+fn prepare_zip_update_bundle(zip_url: &str) -> Result<PreparedZipBundle, String> {
+    let response = reqwest::blocking::get(zip_url).map_err(|e| format!("下载更新包失败: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("下载更新包失败: HTTP {}", response.status()));
+    }
+
+    let bytes = response
+        .bytes()
+        .map_err(|e| format!("读取更新包响应失败: {e}"))?;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let bundle_dir = std::env::temp_dir().join(format!("dcc-update-zip-{now}"));
+    fs::create_dir_all(&bundle_dir).map_err(|e| format!("创建临时目录失败: {e}"))?;
+
+    let zip_path = bundle_dir.join("update.zip");
+    fs::write(&zip_path, &bytes).map_err(|e| format!("写入更新压缩包失败: {e}"))?;
+
+    let zip_file = File::open(&zip_path).map_err(|e| format!("打开更新压缩包失败: {e}"))?;
+    let mut archive = zip::ZipArchive::new(zip_file).map_err(|e| format!("解析更新压缩包失败: {e}"))?;
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|e| format!("读取压缩包条目失败: {e}"))?;
+        let out_path = bundle_dir.join(entry.mangled_name());
+
+        if entry.name().ends_with('/') {
+            fs::create_dir_all(&out_path).map_err(|e| format!("创建目录失败: {e}"))?;
+            continue;
+        }
+
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+        }
+        let mut out_file = File::create(&out_path).map_err(|e| format!("创建文件失败: {e}"))?;
+        std::io::copy(&mut entry, &mut out_file).map_err(|e| format!("解压文件失败: {e}"))?;
+    }
+
+    let latest_json_path = find_first_file_named(&bundle_dir, "latest.json")
+        .ok_or_else(|| String::from("压缩包中缺少 latest.json"))?;
+    let msi_path = find_first_file_with_ext(&bundle_dir, "msi")
+        .ok_or_else(|| String::from("压缩包中缺少 msi 安装包"))?;
+
+    Ok(PreparedZipBundle {
+        bundle_dir,
+        latest_json_path,
+        msi_path,
+    })
+}
+
+fn find_first_file_named(root: &Path, target_name: &str) -> Option<PathBuf> {
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = fs::read_dir(&dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().and_then(|n| n.to_str()) == Some(target_name) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+fn find_first_file_with_ext(root: &Path, ext: &str) -> Option<PathBuf> {
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = fs::read_dir(&dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case(ext))
+                .unwrap_or(false)
+            {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+fn to_relative_url_path(path: &Path, root: &Path) -> Result<String, String> {
+    let rel = path
+        .strip_prefix(root)
+        .map_err(|e| format!("计算相对路径失败: {e}"))?;
+    let mut encoded_parts = Vec::new();
+    for comp in rel.components() {
+        let part = comp.as_os_str().to_string_lossy().replace(' ', "%20");
+        encoded_parts.push(part);
+    }
+    Ok(encoded_parts.join("/"))
+}
+
+fn rewrite_manifest_url(latest_json_path: &Path, msi_path: &Path, bundle_root: &Path, port: u16) -> Result<(), String> {
+    let content = fs::read_to_string(latest_json_path).map_err(|e| format!("读取 latest.json 失败: {e}"))?;
+    let mut value: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("解析 latest.json 失败: {e}"))?;
+
+    let msi_rel = to_relative_url_path(msi_path, bundle_root)?;
+    let msi_url = format!("http://127.0.0.1:{port}/{msi_rel}");
+
+    value["platforms"]["windows-x86_64"]["url"] = serde_json::Value::String(msi_url);
+
+    let updated = serde_json::to_string_pretty(&value).map_err(|e| format!("序列化 latest.json 失败: {e}"))?;
+    fs::write(latest_json_path, updated).map_err(|e| format!("写入 latest.json 失败: {e}"))
+}
+
+fn decode_percent_path(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = &path[i + 1..i + 3];
+            if let Ok(value) = u8::from_str_radix(hex, 16) {
+                out.push(value);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn spawn_local_update_server(root: PathBuf) -> Result<(u16, Arc<AtomicBool>, thread::JoinHandle<()>), String> {
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("绑定本地端口失败: {e}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("设置非阻塞失败: {e}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("读取本地端口失败: {e}"))?
+        .port();
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_in_thread = Arc::clone(&stop);
+
+    let handle = thread::spawn(move || {
+        while !stop_in_thread.load(Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = serve_local_file(&mut stream, &root);
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(30));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    Ok((port, stop, handle))
+}
+
+fn serve_local_file(stream: &mut TcpStream, root: &Path) -> Result<(), String> {
+    let mut buffer = [0u8; 4096];
+    let read_len = stream.read(&mut buffer).map_err(|e| format!("读取请求失败: {e}"))?;
+    if read_len == 0 {
+        return Ok(());
+    }
+
+    let request = String::from_utf8_lossy(&buffer[..read_len]);
+    let first_line = request.lines().next().unwrap_or_default();
+    let mut parts = first_line.split_whitespace();
+    let method = parts.next().unwrap_or_default();
+    let raw_path = parts.next().unwrap_or("/");
+
+    if method != "GET" && method != "HEAD" {
+        stream
+            .write_all(b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .map_err(|e| format!("写入响应失败: {e}"))?;
+        return Ok(());
+    }
+
+    let path_only = raw_path.split('?').next().unwrap_or("/");
+    let normalized = if path_only == "/" { "/latest.json" } else { path_only };
+    let decoded = decode_percent_path(normalized.trim_start_matches('/'));
+    log_updater("local_server:req", &format!("method={method} raw={raw_path} decoded={decoded}"));
+
+    if decoded.contains("..") {
+        stream
+            .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .map_err(|e| format!("写入响应失败: {e}"))?;
+        return Ok(());
+    }
+
+    let target_path = root.join(decoded.replace('/', &std::path::MAIN_SEPARATOR.to_string()));
+    if !target_path.exists() || !target_path.is_file() {
+        log_updater(
+            "local_server:404",
+            &format!("target={} root={}", target_path.display(), root.display()),
+        );
+        stream
+            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .map_err(|e| format!("写入响应失败: {e}"))?;
+        return Ok(());
+    }
+
+    let body = fs::read(&target_path).map_err(|e| format!("读取文件失败: {e}"))?;
+    let content_type = if target_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("json"))
+        .unwrap_or(false)
+    {
+        "application/json"
+    } else {
+        "application/octet-stream"
+    };
+
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    stream
+        .write_all(header.as_bytes())
+        .map_err(|e| format!("写入响应头失败: {e}"))?;
+    if method == "GET" {
+        stream
+            .write_all(&body)
+            .map_err(|e| format!("写入响应体失败: {e}"))?;
+    }
+    Ok(())
+}
+
+fn log_updater(stage: &str, message: &str) {
+    let log_dir = std::env::temp_dir().join("device-control-center");
+    if fs::create_dir_all(&log_dir).is_err() {
+        return;
+    }
+    let log_file = log_dir.join("updater.log");
+    let line = format!("[{}] {} | {}\n", chrono_now(), stage, message);
+    let _ = File::options()
+        .create(true)
+        .append(true)
+        .open(log_file)
+        .and_then(|mut f| f.write_all(line.as_bytes()));
 }
 
 fn ensure_backend_started(app: &tauri::AppHandle) -> Result<(), String> {
@@ -290,7 +625,14 @@ fn main() {
         .manage(BackendProcessState::default())
         .setup(|app| {
             match ensure_backend_started(&app.handle()) {
-                Ok(()) => Ok(()),
+                Ok(()) => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let version = app.package_info().version.to_string();
+                        let title = format!("Device Control Center v{version}");
+                        let _ = window.set_title(&title);
+                    }
+                    Ok(())
+                }
                 Err(message) => {
                     // 写入错误日志，方便远程排查
                     let log_dir = std::env::temp_dir().join("device-control-center");
@@ -339,7 +681,13 @@ fn main() {
         })
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![check_update_from, get_downloads_dir, open_folder])
+        .invoke_handler(tauri::generate_handler![
+            check_update_from,
+            check_update_from_zip,
+            get_downloads_dir,
+            open_folder,
+            open_url
+        ])
         .build(tauri::generate_context!())
         .expect("failed to build tauri application")
         .run(|app, event| {
