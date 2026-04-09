@@ -1909,9 +1909,39 @@ select {
 }
 
 .top-bar-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin-top: 8px;
   color: var(--text-3);
   font-size: 13px;
+  transition: color 0.2s ease;
+}
+
+.top-bar-note.is-busy {
+  color: var(--accent-light);
+}
+
+.top-bar-note.is-error {
+  color: var(--danger, #ef4444);
+}
+
+.top-bar-note.is-success {
+  color: var(--success, #22c55e);
+}
+
+@keyframes spin-update {
+  to { transform: rotate(360deg); }
+}
+
+.update-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin-update 0.8s linear infinite;
+  flex-shrink: 0;
 }
 
 @keyframes floatIn {

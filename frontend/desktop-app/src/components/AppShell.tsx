@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { formatDateTime, initials } from "@/lib/format";
-import { checkAndInstallUpdateFromRemote, checkVersionFromRemote, type VersionCheckResult } from "@/lib/updater";
+import { installUpdate, checkVersionFromRemote, type VersionCheckResult } from "@/lib/updater";
 import { useAuthStore } from "@/stores/auth-store";
 import { useUiStore } from "@/stores/ui-store";
 import { consoleApi } from "@/api/console";
@@ -85,6 +85,7 @@ export function AppShell() {
   const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
   const [updateMessage, setUpdateMessage] = useState("");
+  const [updateStatus, setUpdateStatus] = useState<"" | "busy" | "error" | "success">("");
   const [updateBusy, setUpdateBusy] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
@@ -119,27 +120,11 @@ export function AppShell() {
   useEffect(() => {
     const timer = setTimeout(() => {
       console.log("[AppShell] 自动检查版本更新");
-      void onAutoCheckUpdate();
+      void onCheckUpdate();
     }, 3000);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  /** 启动后自动检查更新，发现新版本先提示用户确认 */
-  const onAutoCheckUpdate = async () => {
-    setUpdateBusy(true);
-    setUpdateMessage("正在自动检查更新...");
-    const result = await checkVersionFromRemote();
-    if (result.hasUpdate) {
-      setPendingUpdate(result);
-      setUpdateMessage(`发现新版本 ${result.latestVersion}，请确认是否更新。`);
-      setUpdateBusy(false);
-      return;
-    }
-
-    setUpdateMessage(result.message);
-    setUpdateBusy(false);
-  };
 
   /** 路由变更时记录日志 */
   useEffect(() => {
@@ -179,30 +164,44 @@ export function AppShell() {
     }
   };
 
-  /** 点击版本更新：先检查，再提示用户确认 */
+  /** 检查版本更新，发现新版本时弹出确认框 */
   const onCheckUpdate = async () => {
     setUpdateBusy(true);
+    setUpdateStatus("busy");
     setUpdateMessage("正在检查更新...");
-    const result = await checkVersionFromRemote();
-    if (result.hasUpdate) {
-      setPendingUpdate(result);
-      setUpdateMessage(`发现新版本 ${result.latestVersion}，请确认是否更新。`);
+    try {
+      const result = await checkVersionFromRemote();
+      if (result.hasUpdate) {
+        setPendingUpdate(result);
+        setUpdateMessage("");
+        setUpdateStatus("");
+      } else {
+        setUpdateMessage(result.message);
+        setUpdateStatus("success");
+      }
+    } catch {
+      setUpdateMessage("检查更新失败，请稍后重试。");
+      setUpdateStatus("error");
+    } finally {
       setUpdateBusy(false);
-      return;
     }
-
-    setUpdateMessage(result.message);
-    setUpdateBusy(false);
   };
 
-  /** 用户确认后才开始安装更新 */
+  /** 用户确认后直接安装（无需重复检查版本） */
   const onConfirmInstallUpdate = async () => {
     if (!pendingUpdate) return;
 
     setUpdateBusy(true);
-    setUpdateMessage(`开始安装新版本 ${pendingUpdate.latestVersion}...`);
-    const result = await checkAndInstallUpdateFromRemote((state) => setUpdateMessage(state.message));
-    setUpdateMessage(result.message);
+    setUpdateStatus("busy");
+    const result = await installUpdate(pendingUpdate, (state) => {
+      setUpdateMessage(state.message);
+    });
+    if (result.status === "error") {
+      setUpdateMessage(result.message);
+      setUpdateStatus("error");
+    } else {
+      setUpdateStatus("success");
+    }
     setPendingUpdate(null);
     setUpdateBusy(false);
   };
@@ -257,7 +256,12 @@ export function AppShell() {
         <header className="top-bar">
           <div className="top-bar-left">
             <h1 className="top-bar-title">{getPageTitle(location.pathname)}</h1>
-            {updateMessage ? <div className="top-bar-note">{updateMessage}</div> : null}
+            {updateMessage ? (
+              <div className={`top-bar-note${updateStatus ? ` is-${updateStatus}` : ""}`}>
+                {updateStatus === "busy" && <span className="update-spinner" />}
+                {updateMessage}
+              </div>
+            ) : null}
           </div>
 
           <div className="top-bar-actions">

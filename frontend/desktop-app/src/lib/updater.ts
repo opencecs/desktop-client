@@ -271,12 +271,10 @@ export async function checkAndInstallUpdate(onState?: (state: AppUpdateState) =>
 }
 
 /**
- * 先通过平台 API 确认有新版本，再走 Tauri 更新通道下载并安装。
- * 这样可以与平台发布策略保持一致，避免直接依赖本地更新源判断。
+ * 直接根据已获取的版本信息执行安装，跳过重复的版本检查。
+ * 适用于用户确认弹窗后直接安装的场景。
  */
-export async function checkAndInstallUpdateFromRemote(onState?: (state: AppUpdateState) => void): Promise<AppUpdateState> {
-  const versionResult = await checkVersionFromRemote();
-
+export async function installUpdate(versionResult: VersionCheckResult, onState?: (state: AppUpdateState) => void): Promise<AppUpdateState> {
   if (!versionResult.hasUpdate) {
     const state = { status: "latest", message: versionResult.message } as const;
     onState?.(state);
@@ -285,7 +283,7 @@ export async function checkAndInstallUpdateFromRemote(onState?: (state: AppUpdat
 
   onState?.({
     status: "downloading",
-    message: `平台检测到新版本 ${versionResult.latestVersion}，开始下载并安装...`,
+    message: `正在下载 ${versionResult.latestVersion}...`,
   });
 
   try {
@@ -304,4 +302,13 @@ export async function checkAndInstallUpdateFromRemote(onState?: (state: AppUpdat
     onState?.(state);
     return state;
   }
+}
+
+/**
+ * 先通过平台 API 确认有新版本，再走 Tauri 更新通道下载并安装。
+ * 这样可以与平台发布策略保持一致，避免直接依赖本地更新源判断。
+ */
+export async function checkAndInstallUpdateFromRemote(onState?: (state: AppUpdateState) => void): Promise<AppUpdateState> {
+  const versionResult = await checkVersionFromRemote();
+  return installUpdate(versionResult, onState);
 }
