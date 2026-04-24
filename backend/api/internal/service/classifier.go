@@ -66,7 +66,7 @@ func NewDesktopClassifier(path string) (*DesktopClassifier, error) {
 	return &DesktopClassifier{rules: rules}, nil
 }
 
-func (c *DesktopClassifier) Classify(instanceID, instanceName, boardType, imageName string, isDesktop *bool) DesktopClassification {
+func (c *DesktopClassifier) Classify(instanceID, instanceName, boardType, imageName string) DesktopClassification {
 	if override, ok := c.rules.Overrides[instanceID]; ok {
 		// Instance overrides win so operators can correct one-off data issues.
 		return DesktopClassification{
@@ -77,13 +77,8 @@ func (c *DesktopClassifier) Classify(instanceID, instanceName, boardType, imageN
 		}
 	}
 
-	// Trust the upstream flag when present; otherwise keep the instance visible by default.
-	matched := true
-	if isDesktop != nil {
-		matched = *isDesktop
-	}
 	return DesktopClassification{
-		IsDesktopSystem: matched,
+		IsDesktopSystem: true,
 		OSName:          inferOSName(imageName, boardType),
 		DesktopEnv:      "",
 		DesktopStatus:   "",

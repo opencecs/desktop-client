@@ -43,6 +43,11 @@ func (c *HTTPClient) Login(ctx context.Context, input model.LoginInput) (model.A
 	return resp, c.doJSON(ctx, http.MethodPost, "/auth/login/account", "", input, &resp)
 }
 
+func (c *HTTPClient) LoginByPhone(ctx context.Context, input model.PhoneLoginInput) (model.AuthResponse, error) {
+	var resp model.AuthResponse
+	return resp, c.doJSON(ctx, http.MethodPost, "/auth/login/phone", "", input, &resp)
+}
+
 func (c *HTTPClient) Refresh(ctx context.Context, token, bearer string) (model.AuthResponse, error) {
 	var resp model.AuthResponse
 	payload := map[string]string{"token": token}
@@ -103,6 +108,11 @@ func (c *HTTPClient) ListInstances(ctx context.Context, bearer string, input mod
 	}
 	var resp model.InstanceListResponse
 	return resp, c.doJSON(ctx, http.MethodGet, path, bearer, nil, &resp)
+}
+
+func (c *HTTPClient) ListSystems(ctx context.Context, bearer string) (model.SystemListResponse, error) {
+	var resp model.SystemListResponse
+	return resp, c.doJSON(ctx, http.MethodGet, "/cecs/systems", bearer, nil, &resp)
 }
 
 func (c *HTTPClient) GetInstance(ctx context.Context, bearer, instanceID string) (model.InstanceDetail, error) {
@@ -315,6 +325,7 @@ func (c *HTTPClient) doJSON(ctx context.Context, method, path, bearer string, bo
 		}
 
 		// 请求成功，解析响应
+		c.logger.Debug("upstream raw response", "method", method, "path", path, "body", string(payload))
 		if out == nil {
 			// 某些接口只返回信封式成功/失败响应
 			if err := decodeEnvelopeStatus(payload); err != nil {

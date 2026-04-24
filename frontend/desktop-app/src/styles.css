@@ -356,6 +356,35 @@ select {
   gap: 10px;
 }
 
+.login-method-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+  margin-bottom: 4px;
+}
+
+.login-method-tab {
+  flex: 1;
+  padding: 8px 0;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary, #888);
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.login-method-tab:hover {
+  color: var(--text-primary, #333);
+}
+
+.login-method-tab.active {
+  color: var(--primary-color, #4f8cff);
+  border-bottom-color: var(--primary-color, #4f8cff);
+  font-weight: 500;
+}
+
 .login-form {
   display: grid;
   gap: 16px;
@@ -2960,6 +2989,7 @@ select {
   flex-direction: column;
   gap: 12px;
   height: calc(100vh - 120px);
+  position: relative;
   animation: pageFadeIn 0.32s ease-out;
 }
 
@@ -4178,27 +4208,8 @@ select {
 }
 
 /* ═══════════════════════════════════════════════════
-   群控页面 (GroupControlPage)
+   群控样式 (用于投屏墙页面的群控功能)
    ═══════════════════════════════════════════════════ */
-
-.gc-page {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: calc(100vh - 120px);
-  animation: pageFadeIn 0.32s ease-out;
-}
-
-.gc-empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: calc(100vh - 200px);
-  color: var(--text-2);
-  text-align: center;
-  animation: pageFadeIn 0.32s ease-out;
-}
 
 /* 设备面板 */
 .gc-panel {
@@ -4931,6 +4942,239 @@ select {
 .mm-deploy-error {
   font-size: 0.72rem;
   opacity: 0.8;
+}
+
+/* ── 投屏墙全屏登录页 ── */
+/* 投屏区域内嵌登录界面 — 浮在网格上方 */
+.sw-login-inline {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6,6,10,0.85);
+  backdrop-filter: blur(8px);
+}
+
+.sw-login-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-deep, #06060a);
+}
+
+.sw-login-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sw-login-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+.sw-login-glow {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  width: 600px;
+  height: 600px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%);
+  filter: blur(80px);
+}
+
+.sw-login-card {
+  position: relative;
+  z-index: 1;
+  width: 400px;
+  max-width: 90vw;
+  background: var(--panel-strong, rgba(28,28,38,0.88));
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border-radius: var(--radius-xl, 20px);
+  padding: 40px 36px;
+  box-shadow: var(--shadow, 0 24px 64px -12px rgba(0,0,0,0.5));
+  backdrop-filter: blur(20px);
+}
+
+.sw-login-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.sw-login-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--accent-glow, rgba(99,102,241,0.25));
+  color: var(--accent-light, #818cf8);
+  margin-bottom: 16px;
+}
+
+.sw-login-header h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text, #f0f0f5);
+}
+
+.sw-login-header p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2, #a0a0b4);
+}
+
+.sw-login-error {
+  background: rgba(248,113,113,0.1);
+  border: 1px solid rgba(248,113,113,0.2);
+  border-radius: var(--radius-sm, 8px);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--danger, #f87171);
+}
+
+.sw-login-warning {
+  background: rgba(240,160,48,0.1);
+  border: 1px solid rgba(240,160,48,0.25);
+  border-radius: var(--radius-sm, 8px);
+  padding: 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #f0a030;
+  text-align: center;
+}
+
+.sw-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sw-login-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sw-login-label span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2, #a0a0b4);
+}
+
+.sw-login-label input {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid var(--border-strong, rgba(255,255,255,0.14));
+  background: var(--bg, #0a0a0f);
+  color: var(--text, #f0f0f5);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.sw-login-label input:focus {
+  border-color: var(--border-focus, rgba(99,135,255,0.5));
+}
+
+.sw-login-btn {
+  margin-top: 4px;
+  padding: 12px;
+  border-radius: var(--radius-sm, 8px);
+  border: none;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.sw-login-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.sw-login-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.sw-login-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sw-login-hint {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-3, #5c5c72);
+}
+
+/* 登录错误抖动动画 */
+.sw-login-shake {
+  animation: sw-shake 0.4s ease-in-out;
+}
+
+@keyframes sw-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-10px); }
+  40% { transform: translateX(10px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+
+/* ── 被顶/忙碌弹窗 ── */
+.sw-kicked-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+}
+
+.sw-kicked-dialog {
+  width: 360px;
+  max-width: 90vw;
+  background: var(--panel-strong, rgba(28,28,38,0.88));
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border-radius: var(--radius-xl, 20px);
+  padding: 36px;
+  text-align: center;
+  box-shadow: var(--shadow, 0 24px 64px -12px rgba(0,0,0,0.5));
+}
+
+.sw-kicked-icon {
+  margin-bottom: 16px;
+}
+
+.sw-kicked-dialog h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text, #f0f0f5);
+}
+
+.sw-kicked-dialog p {
+  margin: 0 0 24px;
+  font-size: 13px;
+  color: var(--text-2, #a0a0b4);
 }
 
 

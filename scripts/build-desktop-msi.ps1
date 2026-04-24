@@ -40,7 +40,7 @@ finally {
   Pop-Location
 }
 
-$password = (Get-Content $passwordPath -Raw).Trim()
+$password = ""
 $privateKey = (Get-Content $privateKeyPath -Raw).Trim()
 
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $tauriToolsDir) | Out-Null
@@ -64,7 +64,10 @@ try {
 
   $sigPath = "$($msi.FullName).sig"
   if (-not (Test-Path $sigPath)) {
-    npx tauri signer sign -f $privateKeyPath -p $password $msi.FullName
+    # 清除环境变量避免与命令行参数冲突
+    Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+    Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+    npx tauri signer sign --private-key-path $privateKeyPath --password $password $msi.FullName
   }
 
   if (-not (Test-Path $sigPath)) {

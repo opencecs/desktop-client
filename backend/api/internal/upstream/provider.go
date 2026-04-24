@@ -10,6 +10,7 @@ import (
 type Provider interface {
     Register(ctx context.Context, input model.RegisterInput) (model.AuthResponse, error)
     Login(ctx context.Context, input model.LoginInput) (model.AuthResponse, error)
+    LoginByPhone(ctx context.Context, input model.PhoneLoginInput) (model.AuthResponse, error)
     Refresh(ctx context.Context, token, bearer string) (model.AuthResponse, error)
     Me(ctx context.Context, bearer string) (model.MeResponse, error)
     Logout(ctx context.Context, bearer string) error
@@ -20,6 +21,7 @@ type Provider interface {
     BindEmail(ctx context.Context, bearer string, input model.BindEmailInput) error
     ChangePassword(ctx context.Context, bearer string, input model.ChangePasswordInput) error
     ListInstances(ctx context.Context, bearer string, input model.ListInstancesInput) (model.InstanceListResponse, error)
+    ListSystems(ctx context.Context, bearer string) (model.SystemListResponse, error)
     GetInstance(ctx context.Context, bearer, instanceID string) (model.InstanceDetail, error)
     GetPortMappingOverview(ctx context.Context, bearer, instanceID string) (model.PortMappingOverview, error)
     ListPortMappings(ctx context.Context, bearer, instanceID string, input model.ListPortMappingsInput) (model.PortMappingListResponse, error)

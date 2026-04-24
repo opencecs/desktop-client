@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"device-control-center/backend/api/internal/model"
 	"device-control-center/backend/api/internal/upstream"
@@ -14,31 +16,82 @@ import (
 type ConsoleService struct {
 	client     upstream.Provider
 	classifier *DesktopClassifier
+
+	// 桌面镜像名缓存
+	desktopImagesMu    sync.Mutex
+	desktopImagesCache map[string]bool
+	desktopImagesTTL   time.Time
 }
+
+const desktopImagesCacheDuration = 5 * time.Minute
 
 func NewConsoleService(client upstream.Provider, classifier *DesktopClassifier) *ConsoleService {
 	return &ConsoleService{client: client, classifier: classifier}
 }
 
+// fetchDesktopImageNames 从 /cecs/systems 获取 is_desktop=true 的 image_name 集合，带缓存
+func (s *ConsoleService) fetchDesktopImageNames(ctx context.Context, bearer string) (map[string]bool, error) {
+	s.desktopImagesMu.Lock()
+	defer s.desktopImagesMu.Unlock()
+
+	if s.desktopImagesCache != nil && time.Now().Before(s.desktopImagesTTL) {
+		return s.desktopImagesCache, nil
+	}
+
+	resp, err := s.client.ListSystems(ctx, bearer)
+	if err != nil {
+		// 缓存失效但请求失败时，返回旧缓存（如果有）
+		if s.desktopImagesCache != nil {
+			slog.Default().Warn("failed to refresh desktop images cache, using stale", "err", err)
+			return s.desktopImagesCache, nil
+		}
+		return nil, err
+	}
+
+	names := make(map[string]bool, len(resp.List))
+	for _, img := range resp.List {
+		if img.IsDesktop {
+			names[img.ImageName] = true
+		}
+	}
+
+	slog.Default().Info("desktop images cache refreshed",
+		"component", "console",
+		"desktop_image_count", len(names),
+		"total_images", len(resp.List),
+	)
+
+	s.desktopImagesCache = names
+	s.desktopImagesTTL = time.Now().Add(desktopImagesCacheDuration)
+	return names, nil
+}
+
 func (s *ConsoleService) ListInstances(ctx context.Context, bearer string, input model.ListInstancesInput) (model.InstanceListResponse, error) {
+	// 先获取桌面镜像名集合
+	desktopImages, err := s.fetchDesktopImageNames(ctx, bearer)
+	if err != nil {
+		slog.Default().Warn("failed to fetch desktop images, falling back to classifier only", "err", err)
+		desktopImages = nil
+	}
+
 	upstreamResp, err := s.client.ListInstances(ctx, bearer, input)
 	if err != nil {
 		return model.InstanceListResponse{}, err
 	}
 
-	// Filter before pagination so the visible set matches the desktop-only product rule.
 	filtered := make([]model.InstanceListItem, 0, len(upstreamResp.List))
 	for _, item := range upstreamResp.List {
-		classification := s.classifier.Classify(item.InstanceID, item.InstanceName, item.BoardType, item.ImageName, item.IsDesktop)
+		// 通过 image_name 匹配 /cecs/systems 中 is_desktop=true 的镜像来判断是否桌面实例
+		isDesktop := false
+		if desktopImages != nil {
+			isDesktop = desktopImages[item.ImageName]
+		}
 
-		// 优先使用上游 is_desktop 字段；未提供时按 image_name 以 "Debian" 开头过滤
-		if item.IsDesktop != nil {
-			if !*item.IsDesktop {
-				continue
-			}
-		} else if !strings.HasPrefix(item.ImageName, "Debian") {
+		if !isDesktop {
 			continue
 		}
+
+		classification := s.classifier.Classify(item.InstanceID, item.InstanceName, item.BoardType, item.ImageName)
 
 		if input.Status != "" && !strings.EqualFold(item.Status, input.Status) {
 			continue
@@ -74,7 +127,7 @@ func (s *ConsoleService) GetInstance(ctx context.Context, bearer, instanceID str
 		return model.InstanceDetail{}, err
 	}
 	// Keep list/detail classification consistent even when the upstream shape differs.
-	classification := s.classifier.Classify(item.InstanceID, item.InstanceName, item.BoardType, item.ImageName, item.IsDesktop)
+	classification := s.classifier.Classify(item.InstanceID, item.InstanceName, item.BoardType, item.ImageName)
 	item.IsDesktopSystem = classification.IsDesktopSystem
 	item.OSName = classification.OSName
 	item.DesktopEnv = classification.DesktopEnv
@@ -235,7 +288,6 @@ func toListItem(item model.InstanceListItem, classification DesktopClassificatio
 		ExpireAt:        item.ExpireAt,
 		CreatedAt:       item.CreatedAt,
 		ImageName:       item.ImageName,
-		IsDesktop:       item.IsDesktop,
 		IsDesktopSystem: classification.IsDesktopSystem,
 		OSName:          classification.OSName,
 		DesktopEnv:      classification.DesktopEnv,

@@ -14,7 +14,6 @@ import moyuntengLogo from "@/assets/moyunteng-logo.ico";
 const navItems = [
   { to: "/", label: "设备管理", end: true },
   { to: "/webrtc-screen-wall", label: "投屏墙" },
-  { to: "/group-control", label: "群控" },
   { to: "/models", label: "模型管理" },
 ];
 
@@ -29,7 +28,6 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/screen-wall")) return "VNC 投屏墙";
   if (pathname.startsWith("/webrtc-screen-wall")) return "投屏墙";
   if (pathname.startsWith("/group-terminal")) return "群控终端";
-  if (pathname.startsWith("/group-control")) return "群控";
   return "";
 }
 
@@ -56,13 +54,6 @@ function NavIcon({ type }: { type: string }) {
       <rect x="10" y="1" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.4" />
       <rect x="1" y="10" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.4" />
       <rect x="10" y="10" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
-  );
-  if (type === "群控") return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <rect x="2" y="2" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M6 15h6M9 12v3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <path d="M6 6l2 2-2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
   return (
@@ -92,6 +83,17 @@ export function AppShell() {
   const [updateChannelOpen, setUpdateChannelOpen] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState<VersionCheckResult | null>(null);
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+
+  // 更新提示自动消失（成功/错误 3 秒后清除）
+  useEffect(() => {
+    if (updateStatus === "success" || updateStatus === "error") {
+      const timer = setTimeout(() => {
+        setUpdateMessage("");
+        setUpdateStatus("");
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [updateStatus]);
   const profileRef = useRef<HTMLDivElement | null>(null);
 
   /** 用户信息面板显示的字段 */

@@ -393,17 +393,7 @@ export function DeviceControlPage() {
             }}
             disabled={selectedIds.size === 0}
           >
-            WebRTC投屏
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              if (selectedIds.size === 0) return;
-              navigate(`/group-control?ids=${Array.from(selectedIds).join(",")}`);
-            }}
-            disabled={selectedIds.size === 0}
-          >
-            群控
+            投屏/群控
           </Button>
           <Button
             variant="ghost"
@@ -560,7 +550,7 @@ export function DeviceControlPage() {
               onToggle={() => toggleSelect(inst.instanceId)}
               onNavigate={() => navigate(`/instances/${inst.instanceId}`)}
               onTerminal={() => navigate(`/terminal/${inst.instanceId}`)}
-              onDesktop={() => navigate(`/instances/${inst.instanceId}/desktop`)}
+              onDesktop={() => navigate(`/webrtc-screen-wall?ids=${inst.instanceId}`)}
               onFiles={() => navigate(`/files/${inst.instanceId}`)}
               portMappingExpanded={expandedPortMapping === inst.instanceId}
               onPortMapping={() => setExpandedPortMapping((prev) => prev === inst.instanceId ? null : inst.instanceId)}

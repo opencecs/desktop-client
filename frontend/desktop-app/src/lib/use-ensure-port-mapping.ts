@@ -10,8 +10,10 @@ import { consoleApi } from "@/api/console";
 interface EnsurePortMappingResult {
   /** NAT 公网 IP */
   natPublicIp: string;
-  /** 映射后的公网端口 */
+  /** TCP 映射后的公网端口 */
   publicPort: number;
+  /** UDP 映射后的公网端口（WebRTC ICE 需要） */
+  udpPublicPort: number;
   /** 数据已就绪（映射存在或已创建） */
   isReady: boolean;
   /** 正在自动创建映射中 */
@@ -24,14 +26,16 @@ interface EnsurePortMappingResult {
  * 自动确保指定端口映射存在
  * @param instanceId 实例 ID
  * @param token      认证 token
- * @param privatePort 需要映射的私网端口（如 22、5900）
- * @param remark      映射备注（如 "SSH"、"VNC"）
+ * @param privatePort 需要映射的私网端口（如 22、5900、8077）
+ * @param remark      映射备注（如 "SSH"、"VNC"、"WebRTC投屏"）
+ * @param protocols   需要映射的协议列表，默认 ["tcp"]；WebRTC 需要 ["tcp", "udp"]
  */
 export function useEnsurePortMapping(
   instanceId: string,
   token: string,
   privatePort: number,
   remark: string,
+  protocols: string[] = ["tcp"],
 ): EnsurePortMappingResult {
   const queryClient = useQueryClient();
   const [isCreating, setIsCreating] = useState(false);
@@ -46,16 +50,28 @@ export function useEnsurePortMapping(
     enabled: !!instanceId && !!token,
   });
 
-  // 查询端口映射列表（不过滤协议，由前端自行筛选，避免大小写或协议名差异导致漏查）
+  // 查询端口映射列表
   const { data: mappingList, isSuccess: listReady } = useQuery({
     queryKey: ["portMappingList", instanceId],
     queryFn: () => consoleApi.fetchPortMappings(instanceId, token),
     enabled: !!instanceId && !!token,
   });
 
-  // 查找目标端口的映射规则（协议名已被 normalize 为大写，做大小写不敏感比较）
-  const targetMapping = mappingList?.items?.find(
+  // 查找目标端口的 TCP 映射（用于返回公网端口）
+  const tcpMapping = mappingList?.items?.find(
     (r) => r.privatePort === privatePort && r.protocol.toUpperCase() === "TCP",
+  );
+
+  // 查找目标端口的 UDP 映射（WebRTC ICE 需要）
+  const udpMapping = mappingList?.items?.find(
+    (r) => r.privatePort === privatePort && r.protocol.toUpperCase() === "UDP",
+  );
+
+  // 检查所有需要的协议是否都已映射
+  const missingProtocols = protocols.filter((proto) =>
+    !mappingList?.items?.find(
+      (r) => r.privatePort === privatePort && r.protocol.toUpperCase() === proto.toUpperCase(),
+    ),
   );
 
   const natPublicIp = overview?.natPublicIp ?? "";
@@ -67,18 +83,30 @@ export function useEnsurePortMapping(
     setIsCreating(true);
     setError("");
 
-    console.log(`[PortMapping] 自动创建端口映射: ${remark} (privatePort=${privatePort})`);
     try {
-      const created = await consoleApi.createPortMapping(
-        instanceId,
-        { protocol: "tcp", privatePort, remark },
-        token,
-      );
-      console.log(`[PortMapping] 端口映射创建成功`, {
-        mappingId: created.mappingId,
-        publicPort: created.publicPort,
-        privatePort: created.privatePort,
-      });
+      for (const proto of missingProtocols) {
+        console.log(`[PortMapping] 自动创建端口映射: ${remark} (privatePort=${privatePort}, protocol=${proto})`);
+        try {
+          const created = await consoleApi.createPortMapping(
+            instanceId,
+            { protocol: proto, privatePort, remark },
+            token,
+          );
+          console.log(`[PortMapping] 端口映射创建成功`, {
+            mappingId: created.mappingId,
+            publicPort: created.publicPort,
+            privatePort: created.privatePort,
+            protocol: proto,
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "创建端口映射失败";
+          const isDuplicate = msg.includes("已存在") || msg.includes("重复") || msg.includes("duplicate") || msg.includes("already");
+          if (!isDuplicate) {
+            throw e;
+          }
+          console.warn(`[PortMapping] ${proto.toUpperCase()} 映射已存在，跳过`, { privatePort });
+        }
+      }
       // 刷新映射列表和概览缓存
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["portMappingList", instanceId] }),
@@ -86,35 +114,26 @@ export function useEnsurePortMapping(
       ]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "创建端口映射失败";
-      // 若上游提示"已存在"（重复添加），则直接刷新列表获取已有的映射，不报错
-      const isDuplicate = msg.includes("已存在") || msg.includes("重复") || msg.includes("duplicate") || msg.includes("already");
-      if (isDuplicate) {
-        console.warn(`[PortMapping] 映射已存在，刷新列表获取数据`, { privatePort });
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["portMappingList", instanceId] }),
-          queryClient.invalidateQueries({ queryKey: ["portMappingOverview", instanceId] }),
-        ]);
-      } else {
-        console.error(`[PortMapping] 自动创建端口映射失败:`, msg);
-        setError(msg);
-      }
+      console.error(`[PortMapping] 自动创建端口映射失败:`, msg);
+      setError(msg);
     } finally {
       setIsCreating(false);
       creatingRef.current = false;
     }
-  }, [instanceId, token, privatePort, remark, queryClient]);
+  }, [instanceId, token, privatePort, remark, missingProtocols, queryClient]);
 
-  // 列表加载完成后，如果映射不存在，自动创建
+  // 列表加载完成后，如果有缺失的映射，自动创建
   useEffect(() => {
-    if (listReady && !targetMapping && !creatingRef.current && instanceId && token) {
+    if (listReady && missingProtocols.length > 0 && !creatingRef.current && instanceId && token) {
       autoCreate();
     }
-  }, [listReady, targetMapping, autoCreate, instanceId, token]);
+  }, [listReady, missingProtocols.length, autoCreate, instanceId, token]);
 
   return {
     natPublicIp,
-    publicPort: targetMapping?.publicPort ?? 0,
-    isReady: !!natPublicIp && !!targetMapping,
+    publicPort: tcpMapping?.publicPort ?? 0,
+    udpPublicPort: udpMapping?.publicPort ?? 0,
+    isReady: !!natPublicIp && missingProtocols.length === 0 && !!tcpMapping,
     isCreating,
     error,
   };

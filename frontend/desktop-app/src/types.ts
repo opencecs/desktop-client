@@ -33,6 +33,12 @@ export interface RegisterInput {
   code: string;
 }
 
+export interface PhoneLoginInput {
+  phone: string;
+  code: string;
+  rememberMe: boolean;
+}
+
 export interface InstanceSummary {
   instanceId: string;
   instanceName: string;
@@ -50,7 +56,7 @@ export interface InstanceSummary {
   diskSize?: number;
   bandwidth?: number;
   bandwidthType?: string;
-  isDesktop?: boolean;
+  isDesktop: boolean;
   isDesktopSystem: boolean;
   osName?: string;
   desktopEnv?: string;

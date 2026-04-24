@@ -2,13 +2,13 @@
  * WebRtcViewer — 基于 WebRTC 连接 debian_screen_control 服务的投屏组件
  *
  * 工作流程：
- *  1. 建立 WebSocket 连接到  ws://<host>:<port>/ws
- *  2. 发送 { type: "connect", ice_server: [...] } 触发服务端建立 PeerConnection
+ *  1. 建立 WebSocket 连接到后端代理 ws://127.0.0.1:8080/api/instance/{id}/webrtc
+ *  2. 发送 { type: "connect", token } 触发服务端建立 PeerConnection
  *  3. 服务端返回 SDP Offer（Base64），浏览器创建 Answer 并回传
  *  4. ICE 候选双向交换，P2P 链路建立后 <video> 接收 H.264 + Opus 流
  *  5. DataChannel 用于鼠标/键盘控制指令
  *
- * 与 NoVncViewer 的接口风格保持一致，便于在群控页面中统一使用。
+ * 设备端已配置公网 IP 直连，无需 STUN/TURN 服务器。
  */
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
 import { createLogger } from "@/lib/logger";
@@ -20,6 +20,7 @@ export type WebRtcConnectionState = "disconnected" | "connecting" | "connected" 
 /** 控制指令类型（对应 debian_screen_control DataChannel JSON 协议） */
 export type ControlMessage =
   | { type: "touch"; x: number; y: number }
+  | { type: "mouse_relative"; x: number; y: number }
   | { type: "d_left"; x: number; y: number }
   | { type: "u_left"; x: number; y: number }
   | { type: "d_right"; x: number; y: number }
@@ -28,7 +29,8 @@ export type ControlMessage =
   | { type: "s_down" }
   | { type: "input"; text: string }
   | { type: "code"; action: 0 | 1; code: number }
-  | { type: "reset_video"; width: number; height: number; bitrate: number; fps: number };
+  | { type: "reset_video"; width: number; height: number; bitrate: number; fps: number }
+  | { type: "get_clipboard" };
 
 export interface WebRtcViewerHandle {
   /** 向该设备发送控制指令 */
@@ -42,20 +44,60 @@ export interface WebRtcViewerHandle {
 export interface WebRtcViewerProps {
   /** 实例 ID（用于日志和 key） */
   instanceId: string;
-  /** debian_screen_control 服务的可访问 host */
+  /** debian_screen_control 服务的可访问 host（公网 IP） */
   host: string;
-  /** debian_screen_control 服务端口（默认 8077） */
+  /** debian_screen_control 服务端口（TCP 公网映射端口，用于 WebSocket） */
   port: number;
-  /** 设备 token（对应 debian_screen_control ./token 文件内容） */
+  /** debian_screen_control 的 session token（通过登录 /api/login 获取） */
   token: string;
-  /** TURN/STUN 服务器配置，跨网络时需要 */
-  iceServers?: RTCIceServer[];
   /** 是否接管本组件的鼠标/键盘输入并发送控制（单独使用时为 true，群控从设备为 false） */
   captureInput?: boolean;
   /** 连接状态变更回调 */
   onStateChange?: (state: WebRtcConnectionState) => void;
+  /** 被顶掉（kicked）或忙碌（busy）回调 */
+  onKicked?: (message: string) => void;
+  onBusy?: (message: string) => void;
   /** 额外 CSS 类名 */
   className?: string;
+}
+
+/**
+ * 改写 SDP 以请求最高视频画质：
+ * 1. 添加 b=AS 和 b=TIAS 高带宽上限（8Mbps）
+ * 2. 设置 H.264 profile-level-id 为 4d0032（High Profile Level 5.0）
+ */
+function enhanceSdpForQuality(sdp: string): string {
+  const lines = sdp.split("\n");
+  const result: string[] = [];
+  let inVideoMedia = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    result.push(line);
+
+    // 追踪当前 media section
+    if (line.startsWith("m=video")) {
+      inVideoMedia = true;
+    } else if (line.startsWith("m=")) {
+      inVideoMedia = false;
+    }
+
+    // 在 video media section 的端口行后插入带宽声明
+    if (inVideoMedia && line.startsWith("m=video")) {
+      result.push("b=AS:8000");
+      result.push("b=TIAS:8000000");
+    }
+
+    // 替换 H.264 profile-level-id 为 High Profile
+    if (line.includes("profile-level-id=")) {
+      result[result.length - 1] = line.replace(
+        /profile-level-id=[0-9a-fA-F]{6}/,
+        "profile-level-id=4d0032",
+      );
+    }
+  }
+
+  return result.join("\n");
 }
 
 /**
@@ -68,9 +110,10 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
       host,
       port,
       token,
-      iceServers = [],
       captureInput = false,
       onStateChange,
+      onKicked,
+      onBusy,
       className = "",
     },
     ref,
@@ -81,7 +124,11 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
     const dcRef = useRef<RTCDataChannel | null>(null);
     const onStateChangeRef = useRef(onStateChange);
     onStateChangeRef.current = onStateChange;
-    // 标记是否已收到服务端消息（区分 Token 错误和 ICE 失败）
+    const onKickedRef = useRef(onKicked);
+    onKickedRef.current = onKicked;
+    const onBusyRef = useRef(onBusy);
+    onBusyRef.current = onBusy;
+    // 标记是否已收到服务端消息（区分 Token 错误和连接失败）
     const msgReceivedRef = useRef(false);
 
     const [connState, setConnState] = useState<WebRtcConnectionState>("disconnected");
@@ -91,7 +138,8 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
     const updateState = useCallback((s: WebRtcConnectionState, reason = "") => {
       setConnState(s);
       if (reason) setErrorReason(reason);
-      onStateChangeRef.current?.(s);
+      // 延迟通知父组件，避免在渲染阶段触发父组件 setState
+      queueMicrotask(() => onStateChangeRef.current?.(s));
     }, []);
 
     /** 向 DataChannel 发送控制指令 */
@@ -129,22 +177,31 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
 
     /** 建立 WebRTC 连接 */
     const connect = useCallback(() => {
-      if (!host || !port || !instanceId) return;
+      console.log("[WebRtcViewer] connect()", { host, port, instanceId, hasToken: !!token });
+      if (!host || !port || !instanceId) {
+        console.log("[WebRtcViewer] connect() skipped: missing", { host: !host, port: !port, instanceId: !instanceId });
+        return;
+      }
+      logger.info("webrtc:connect:begin", { instanceId, host, port, hasToken: !!token });
       disconnect();
       setErrorReason("");
       msgReceivedRef.current = false;
       updateState("connecting");
 
       const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-      // 通过本地后端代理连接（避免直连设备公网 IP 遭 NAT/CSP 拦截）
-      const wsUrl = `${protocol}//127.0.0.1:8080/api/instance/${instanceId}/webrtc?host=${encodeURIComponent(host)}&port=${encodeURIComponent(port)}&token=${encodeURIComponent(token)}`;
+      const wsUrl = `${protocol}//127.0.0.1:8080/api/instance/${instanceId}/webrtc?host=${encodeURIComponent(host)}&port=${encodeURIComponent(port)}&device_token=${encodeURIComponent(token)}`;
       logger.info("webrtc:connect:start", { instanceId, wsUrl });
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
-      const pc = new RTCPeerConnection({ iceServers });
+      // 设备端已配置公网 IP 直连，无需 STUN/TURN
+      const pc = new RTCPeerConnection({ iceServers: [] });
       pcRef.current = pc;
+
+      // 用于缓存在 setRemoteDescription 完成前到达的 ICE candidates
+      let remoteDescSet = false;
+      const pendingCandidates: RTCIceCandidateInit[] = [];
 
       // 接收远端音视频流，挂载到 <video>
       pc.ontrack = (ev) => {
@@ -162,13 +219,33 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
         const dc = ev.channel;
         dcRef.current = dc;
         dc.binaryType = "arraybuffer";
-        dc.onopen = () => logger.info("webrtc:datachannel:open", { instanceId });
+        const sendResetVideo = () => {
+          try {
+            dc.send(JSON.stringify({ type: "reset_video", width: 1920, height: 1080, bitrate: 8000, fps: 60 }));
+            logger.info("webrtc:reset_video:sent", { instanceId, width: 1920, height: 1080, bitrate: 8000, fps: 60 });
+          } catch (_) {}
+        };
+        dc.onopen = () => {
+          logger.info("webrtc:datachannel:open", { instanceId });
+          // 立即发送一次 reset_video
+          sendResetVideo();
+          // 延迟再发一次，确保设备端编码器已初始化
+          setTimeout(sendResetVideo, 2000);
+          setTimeout(sendResetVideo, 5000);
+        };
         dc.onclose = () => logger.info("webrtc:datachannel:close", { instanceId });
         dc.onmessage = (e) => {
-          // 服务端通过 DataChannel 发送 notify 消息（如切换完成），目前仅记录日志
           try {
             const data = JSON.parse(e.data as string);
             logger.debug("webrtc:datachannel:msg", { instanceId, data });
+            if (data.type === "kicked") {
+              updateState("failed", data.message || "其他设备已连接，当前连接被断开");
+              disconnect();
+              queueMicrotask(() => onKickedRef.current?.(data.message || "其他设备已连接，当前连接被断开"));
+            } else if (data.type === "busy") {
+              updateState("failed", data.message || "设备忙碌中");
+              queueMicrotask(() => onBusyRef.current?.(data.message || "设备忙碌中"));
+            }
           } catch (_) {}
         };
       };
@@ -181,13 +258,42 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
       };
 
       pc.onconnectionstatechange = () => {
+        console.log("[WebRtcViewer] pc.connectionState =", pc.connectionState, { instanceId });
         logger.info("webrtc:pc-state", { instanceId, state: pc.connectionState });
         switch (pc.connectionState) {
           case "connected":
             updateState("connected");
+            // 连接建立后定期打印视频统计（分辨率、码率、帧率）
+            {
+              let lastBytes = 0;
+              const statsInterval = setInterval(() => {
+                if (pc.connectionState !== "connected") {
+                  clearInterval(statsInterval);
+                  return;
+                }
+                pc.getStats().then((stats) => {
+                  stats.forEach((report) => {
+                    if (report.type === "inbound-rtp" && report.kind === "video") {
+                      const bytesDelta = (report.bytesReceived ?? 0) - lastBytes;
+                      lastBytes = report.bytesReceived ?? 0;
+                      const bitrateKbps = Math.round(bytesDelta * 8 / 1000);
+                      logger.info("webrtc:video-stats", {
+                        instanceId,
+                        resolution: `${report.frameWidth ?? "?"}x${report.frameHeight ?? "?"}`,
+                        fps: report.framesPerSecond ?? "?",
+                        bitrateKbps,
+                        codec: report.codecId ?? "?",
+                      });
+                    }
+                  });
+                }).catch(() => {});
+              }, 5000);
+            }
             break;
           case "failed":
-            updateState("failed", "ICE连接失败（无法穿透NAT，请配置STUN/TURN服务器）");
+            updateState("failed", "WebRTC连接失败");
+            // 连接失败后主动关闭 WebSocket，释放设备端连接槽位
+            try { ws.close(); } catch (_) {}
             break;
           case "closed":
             updateState("failed", "WebRTC连接已关闭");
@@ -199,11 +305,10 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
       };
 
       ws.onopen = () => {
+        console.log("[WebRtcViewer] ws.onopen", { instanceId });
         logger.info("webrtc:ws:open", { instanceId });
-        // 发送 connect 消息，触发服务端建立 PeerConnection 并发 offer
         ws.send(JSON.stringify({
           type: "connect",
-          ice_server: iceServers,
           token,
         }));
       };
@@ -216,10 +321,10 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
         } catch (_) {
           return;
         }
+        console.log("[WebRtcViewer] ws.onmessage", { instanceId, type: msg.type });
 
         switch (msg.type) {
           case "offer": {
-            // SDP Offer 是 Base64 编码的 JSON
             if (!msg.sdp) return;
             let offerInit: RTCSessionDescriptionInit;
             try {
@@ -229,10 +334,21 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
               return;
             }
             await pc.setRemoteDescription(new RTCSessionDescription(offerInit));
+            remoteDescSet = true;
+            // 处理在 setRemoteDescription 之前到达的候选
+            for (const c of pendingCandidates) {
+              await pc.addIceCandidate(new RTCIceCandidate(c));
+            }
+            pendingCandidates.length = 0;
             const answer = await pc.createAnswer();
+            // 改写 SDP 以请求最高画质
+            if (answer.sdp) {
+              answer.sdp = enhanceSdpForQuality(answer.sdp);
+            }
             await pc.setLocalDescription(answer);
             const encodedAnswer = btoa(JSON.stringify(pc.localDescription));
             ws.send(JSON.stringify({ type: "answer", sdp: encodedAnswer }));
+            console.log("[WebRtcViewer] answer sent", { instanceId });
             logger.info("webrtc:answer:sent", { instanceId });
             break;
           }
@@ -240,8 +356,13 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
             if (!msg.sdp) return;
             try {
               const candidate = JSON.parse(atob(msg.sdp)) as RTCIceCandidateInit;
-              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+              if (remoteDescSet) {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+              } else {
+                pendingCandidates.push(candidate);
+              }
             } catch (e) {
+              console.warn("[WebRtcViewer] addIceCandidate failed", { instanceId, error: String(e) });
               logger.warn("webrtc:candidate:add-failed", { instanceId, error: String(e) });
             }
             break;
@@ -250,42 +371,64 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
             logger.error("webrtc:server-error", { instanceId, message: msg.message });
             updateState("failed", `服务端错误: ${msg.message ?? "unknown"}`);
             break;
+          case "kicked":
+            logger.info("webrtc:kicked", { instanceId, message: msg.message });
+            updateState("failed", msg.message || "其他设备已连接，当前连接被断开");
+            disconnect();
+            queueMicrotask(() => onKickedRef.current?.(msg.message || "其他设备已连接，当前连接被断开"));
+            break;
+          case "busy":
+            logger.info("webrtc:busy", { instanceId, message: msg.message });
+            updateState("failed", msg.message || "设备忙碌中");
+            queueMicrotask(() => onBusyRef.current?.(msg.message || "设备忙碌中"));
+            break;
         }
       };
 
       ws.onerror = (e) => {
-        logger.error("webrtc:ws:error", { instanceId, error: String(e) });
+        console.error("[WebRtcViewer] ws.onerror", { instanceId, type: (e as any)?.type, readyState: ws.readyState });
+        logger.error("webrtc:ws:error", { instanceId, error: String(e), type: (e as any)?.type, readyState: ws.readyState });
         updateState("failed", `后端代理连接失败 (ws://127.0.0.1:8080 → ${host}:${port})`);
       };
 
       ws.onclose = (e) => {
-        logger.info("webrtc:ws:close", { instanceId, code: e.code, reason: e.reason });
-        // 若还未 connected 则标记失败
+        console.log("[WebRtcViewer] ws.onclose", { instanceId, code: e.code, reason: e.reason, wasClean: e.wasClean });
+        logger.info("webrtc:ws:close", { instanceId, code: e.code, reason: e.reason, wasClean: e.wasClean, readyState: ws.readyState });
         setConnState((prev) => {
           if (prev === "connecting") {
             let reason: string;
             if (!msgReceivedRef.current) {
-              // 从未收到服务端任何消息——几乎可确定是 Token 错误
-              reason = `Token 错误或 debian_screen_control 服务未运行（服务端收到请求后立即关闭，没有回应）`;
+              reason = `Token 错误或投屏服务未运行（服务端收到请求后立即关闭，没有回应）`;
             } else {
               reason = e.reason ? `服务端关闭: ${e.reason}` : `WebSocket关闭 (code=${e.code})`;
             }
             setErrorReason(reason);
-            onStateChangeRef.current?.("failed");
+            queueMicrotask(() => onStateChangeRef.current?.("failed"));
             return "failed";
           }
           return prev;
         });
       };
-    }, [host, port, instanceId, token, iceServers, disconnect, updateState]);
+    }, [host, port, instanceId, token, disconnect, updateState]);
+
+    // 用 ref 持有最新的 connect/disconnect，避免 useEffect 依赖闭包导致无限循环
+    const connectRef = useRef(connect);
+    connectRef.current = connect;
+    const disconnectRef = useRef(disconnect);
+    disconnectRef.current = disconnect;
 
     // host/port/token 变化时重新建立连接
     useEffect(() => {
-      if (host && port && instanceId) {
-        connect();
-      }
-      return disconnect;
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      if (!host || !port || !instanceId) return;
+      let cancelled = false;
+      const timer = setTimeout(() => {
+        if (!cancelled) connectRef.current();
+      }, 0);
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+        disconnectRef.current();
+      };
     }, [instanceId, host, port, token]);
 
     // ── 输入捕获（captureInput=true 时激活，单台独立控制模式） ──
@@ -340,6 +483,30 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
         sendControl({ type: "code", action: 1, code: e.keyCode });
       };
 
+      // 中文/IME 输入支持：通过隐藏 input 捕获 compositionend
+      const inputEl = document.createElement("input");
+      inputEl.style.cssText = "position:absolute;left:-9999px;top:-9999px;opacity:0;width:1px;height:1px;";
+      video.parentElement?.appendChild(inputEl);
+
+      const onFocusInput = () => inputEl.focus();
+      video.addEventListener("mousedown", onFocusInput);
+
+      inputEl.addEventListener("compositionend", (e: CompositionEvent) => {
+        if (e.data) {
+          sendControl({ type: "input", text: e.data });
+          inputEl.value = "";
+        }
+      });
+
+      inputEl.addEventListener("input", (e: Event) => {
+        const ie = e as InputEvent;
+        if (ie.isComposing) return;
+        if (ie.data) {
+          sendControl({ type: "input", text: ie.data });
+          inputEl.value = "";
+        }
+      });
+
       video.addEventListener("mousemove", onMouseMove);
       video.addEventListener("mousedown", onMouseDown);
       video.addEventListener("mouseup", onMouseUp);
@@ -356,6 +523,8 @@ export const WebRtcViewer = forwardRef<WebRtcViewerHandle, WebRtcViewerProps>(
         video.removeEventListener("wheel", onWheel);
         video.removeEventListener("keydown", onKeyDown);
         video.removeEventListener("keyup", onKeyUp);
+        video.removeEventListener("mousedown", onFocusInput);
+        inputEl.remove();
       };
     }, [captureInput, sendControl, videoSize]);
 

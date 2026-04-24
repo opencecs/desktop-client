@@ -44,8 +44,14 @@ type batchDeletePortMappingsRequest struct {
 }
 
 type registerRequest struct {
-	Phone string `json:"phone" binding:"required"`
-	Code  string `json:"code" binding:"required"`
+	Phone    string `json:"phone" binding:"required"`
+	Code     string `json:"code" binding:"required"`
+}
+
+type phoneLoginRequest struct {
+	Phone      string `json:"phone" binding:"required"`
+	Code       string `json:"code" binding:"required"`
+	RememberMe bool   `json:"remember_me"`
 }
 
 func registerHandler(c *gin.Context, auth *service.AuthService) {
@@ -55,8 +61,9 @@ func registerHandler(c *gin.Context, auth *service.AuthService) {
 		return
 	}
 	resp, err := auth.Register(c.Request.Context(), model.RegisterInput{
-		Phone: req.Phone,
-		Code:  req.Code,
+		Phone:      req.Phone,
+		Code:       req.Code,
+		Agreements: []string{"terms", "privacy", "service"},
 	})
 	if err != nil {
 		writeServiceError(c, err)
@@ -83,6 +90,25 @@ func loginHandler(c *gin.Context, auth *service.AuthService) {
 	resp, err := auth.Login(c.Request.Context(), model.LoginInput{
 		Account:    account,
 		Password:   req.Password,
+		RememberMe: req.RememberMe,
+	})
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// phoneLoginHandler 短信验证码登录
+func phoneLoginHandler(c *gin.Context, auth *service.AuthService) {
+	var req phoneLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	resp, err := auth.LoginByPhone(c.Request.Context(), model.PhoneLoginInput{
+		Phone:      req.Phone,
+		Code:       req.Code,
 		RememberMe: req.RememberMe,
 	})
 	if err != nil {

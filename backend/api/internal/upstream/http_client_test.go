@@ -316,15 +316,12 @@ func TestDecodeResponseSupportsNestedInstanceEnvelope(t *testing.T) {
 	t.Parallel()
 
 	var out model.InstanceDetail
-	err := decodeResponse([]byte(`{"code":200,"message":"success","data":{"instance":{"instance_id":"id-1","instance_name":"Desktop","board_type":"rk3588","image_name":"MytIOS 1.0","is_desktop":true,"status":"running"}}}`), &out)
+	err := decodeResponse([]byte(`{"code":200,"message":"success","data":{"instance":{"instance_id":"id-1","instance_name":"Desktop","board_type":"rk3588","image_name":"MytIOS 1.0","status":"running"}}}`), &out)
 	if err != nil {
 		t.Fatalf("expected nested instance payload to decode, got %v", err)
 	}
 	if out.InstanceID != "id-1" || out.InstanceName != "Desktop" || out.BoardType != "rk3588" {
 		t.Fatalf("unexpected decoded detail: %#v", out)
-	}
-	if out.IsDesktop == nil || !*out.IsDesktop {
-		t.Fatalf("expected explicit desktop flag, got %#v", out.IsDesktop)
 	}
 }
 

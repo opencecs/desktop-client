@@ -15,11 +15,7 @@ import type { InstanceSummary } from "@/types";
 type StatusFilter = "all" | "running" | "stopped" | "expired";
 
 function isVisibleDesktopInstance(instance: InstanceSummary) {
-  if (instance.isDesktop !== undefined) {
-    return instance.isDesktop;
-  }
-
-  return instance.isDesktopSystem;
+  return instance.isDesktop;
 }
 
 function matchesFilter(instance: InstanceSummary, keyword: string, status: StatusFilter) {
@@ -209,7 +205,7 @@ export function DashboardPage() {
                           <Link className="ghost-button row-button" to={`/instances/${instance.instanceId}`}>
                             详情
                           </Link>
-                          <Link className="ghost-button row-button" to={`/instances/${instance.instanceId}/desktop`}>
+                          <Link className="ghost-button row-button" to={`/webrtc-screen-wall?ids=${instance.instanceId}`}>
                             桌面
                           </Link>
                         </div>

@@ -17,7 +17,7 @@ func TestDesktopClassifierByKeyword(t *testing.T) {
 		t.Fatalf("new classifier: %v", err)
 	}
 
-	result := classifier.Classify("id-1", "My Debian Desktop", "rk3588", "MytIOS 1.0", nil)
+	result := classifier.Classify("id-1", "My Debian Desktop", "rk3588", "MytIOS 1.0")
 	if !result.IsDesktopSystem {
 		t.Fatalf("expected default desktop classification to be true")
 	}
@@ -47,7 +47,7 @@ func TestDesktopClassifierOverride(t *testing.T) {
 		t.Fatalf("new classifier: %v", err)
 	}
 
-	result := classifier.Classify("id-override", "Compute Node", "server", "", nil)
+	result := classifier.Classify("id-override", "Compute Node", "server", "")
 	if !result.IsDesktopSystem {
 		t.Fatalf("expected override classification to be true")
 	}
@@ -59,27 +59,6 @@ func TestDesktopClassifierOverride(t *testing.T) {
 	}
 	if result.DesktopStatus != "ready" {
 		t.Fatalf("expected override desktop status, got %q", result.DesktopStatus)
-	}
-}
-
-func TestDesktopClassifierRespectsExplicitIsDesktopFlag(t *testing.T) {
-	path := writeTestRules(t, `{
-		"desktop_keywords": ["desktop"],
-		"overrides": {}
-	}`)
-
-	classifier, err := NewDesktopClassifier(path)
-	if err != nil {
-		t.Fatalf("new classifier: %v", err)
-	}
-
-	isDesktop := false
-	result := classifier.Classify("id-2", "Compute Node", "server", "", &isDesktop)
-	if result.IsDesktopSystem {
-		t.Fatalf("expected explicit is_desktop=false to win")
-	}
-	if result.DesktopStatus != "" {
-		t.Fatalf("expected empty desktop status without upstream field, got %q", result.DesktopStatus)
 	}
 }
 

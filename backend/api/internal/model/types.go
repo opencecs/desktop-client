@@ -9,8 +9,9 @@ type LoginInput struct {
 }
 
 type RegisterInput struct {
-	Phone string `json:"phone"`
-	Code  string `json:"code"`
+	Phone      string   `json:"phone"`
+	Code       string   `json:"code"`
+	Agreements []string `json:"agreements"`
 }
 
 type AuthResponse struct {
@@ -31,6 +32,13 @@ type MeResponse struct {
 	Phone    string `json:"phone"`
 	Email    string `json:"email"`
 	Avatar   string `json:"avatar"`
+}
+
+// PhoneLoginInput 短信验证码登录请求
+type PhoneLoginInput struct {
+	Phone      string `json:"phone" binding:"required"`
+	Code       string `json:"code" binding:"required"`
+	RememberMe bool   `json:"remember_me"`
 }
 
 // ───────── 用户资料编辑 ─────────
@@ -73,6 +81,19 @@ type ListInstancesInput struct {
 	Search   string
 }
 
+// SystemImage 系统镜像（来自 /cecs/systems）
+type SystemImage struct {
+	ImageID   string `json:"image_id"`
+	ImageName string `json:"image_name"`
+	IsDesktop bool   `json:"is_desktop"`
+}
+
+// SystemListResponse /cecs/systems 响应
+type SystemListResponse struct {
+	Total int           `json:"total"`
+	List  []SystemImage `json:"list"`
+}
+
 type InstanceListItem struct {
 	InstanceID      string `json:"instance_id"`
 	InstanceName    string `json:"instance_name"`
@@ -83,7 +104,6 @@ type InstanceListItem struct {
 	ExpireAt        string `json:"expire_at"`
 	CreatedAt       string `json:"created_at"`
 	ImageName       string `json:"image_name,omitempty"`
-	IsDesktop       *bool  `json:"is_desktop,omitempty"`
 	IsDesktopSystem bool   `json:"is_desktop_system"`
 	OSName          string `json:"os_name"`
 	DesktopEnv      string `json:"desktop_env"`
@@ -110,7 +130,6 @@ type InstanceDetail struct {
 	UpdatedAt       string `json:"updated_at"`
 	BoardType       string `json:"board_type,omitempty"`
 	ImageName       string `json:"image_name,omitempty"`
-	IsDesktop       *bool  `json:"is_desktop,omitempty"`
 	IsDesktopSystem bool   `json:"is_desktop_system"`
 	OSName          string `json:"os_name"`
 	DesktopEnv      string `json:"desktop_env"`

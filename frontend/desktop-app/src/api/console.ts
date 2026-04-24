@@ -14,6 +14,7 @@ import type {
   InstanceDetail,
   OpLogEntry,
   OpLogListResponse,
+  PhoneLoginInput,
   PortMappingBatchCreateInput,
   PortMappingBatchCreateResult,
   PortMappingBatchDeleteResult,
@@ -117,10 +118,8 @@ function normalizeSession(payload: any, source: "api"): AuthSession {
 
 function normalizeInstance(payload: any): InstanceSummary {
   const body = unwrapApiPayload(payload);
-  // Keep the field optional until upstream ships a real `is_desktop` flag.
-  const explicitIsDesktop = body?.is_desktop ?? body?.isDesktop;
-  const normalizedIsDesktop = typeof explicitIsDesktop === "boolean" ? explicitIsDesktop : undefined;
-  const normalizedIsDesktopSystem = body?.is_desktop_system ?? body?.isDesktopSystem ?? normalizedIsDesktop ?? true;
+  // is_desktop 由上游接口提供，标识是否为桌面系统实例
+  const isDesktop = Boolean(body?.is_desktop ?? body?.isDesktop ?? false);
 
   return {
     instanceId: String(body?.instance_id ?? body?.instanceId ?? ""),
@@ -139,8 +138,8 @@ function normalizeInstance(payload: any): InstanceSummary {
     diskSize: body?.disk_size !== undefined ? Number(body.disk_size) : body?.diskSize !== undefined ? Number(body.diskSize) : undefined,
     bandwidth: body?.bandwidth !== undefined ? Number(body.bandwidth) : undefined,
     bandwidthType: body?.bandwidth_type ? String(body.bandwidth_type) : body?.bandwidthType ? String(body.bandwidthType) : undefined,
-    isDesktop: normalizedIsDesktop,
-    isDesktopSystem: Boolean(normalizedIsDesktopSystem),
+    isDesktop,
+    isDesktopSystem: isDesktop,
     osName: body?.os_name ? String(body.os_name) : body?.osName ? String(body.osName) : undefined,
     desktopEnv: body?.desktop_env ? String(body.desktop_env) : body?.desktopEnv ? String(body.desktopEnv) : undefined,
     desktopStatus: body?.desktop_status ? String(body.desktop_status) : body?.desktopStatus ? String(body.desktopStatus) : undefined,
@@ -280,6 +279,7 @@ export const consoleApi = {
       json: {
         phone: payload.phone,
         code: payload.code,
+        agreements: ["terms", "privacy", "service"],
       },
     });
     const session = normalizeSession(response, "api");
@@ -342,6 +342,34 @@ export const consoleApi = {
       }
       throw error;
     }
+  },
+
+  /** 短信验证码登录 */
+  async loginByPhone(payload: PhoneLoginInput): Promise<AuthSession> {
+    consoleLogger.debug("loginByPhone:start", { phone: payload.phone });
+    const response = await requestJson<any>("/auth/login/phone", {
+      method: "POST",
+      json: {
+        phone: payload.phone,
+        code: payload.code,
+        remember_me: payload.rememberMe,
+      },
+    });
+
+    const session = normalizeSession(response, "api");
+    consoleLogger.debug("loginByPhone:success");
+
+    // 补充缺失的用户详细信息
+    if (!session.user?.username || !session.user.email || !session.user.phone || !session.user.avatar) {
+      try {
+        const me = await consoleApi.fetchCurrentUser(session.accessToken);
+        return { ...session, user: { ...session.user, ...me }, source: "api" };
+      } catch (error) {
+        consoleLogger.warn("loginByPhone:me-merge-skipped", { error: String(error) });
+      }
+    }
+
+    return session;
   },
 
   /** 获取当前登录用户信息 */
@@ -784,6 +812,39 @@ export const consoleApi = {
       throw new ApiError("http", text, response.status);
     }
     consoleLogger.info("storage:upload:ok", { instanceId, key });
+  },
+
+  /* ───────── 设备 WebRTC 登录 ───────── */
+
+  /** 通过后端代理调用 debian_screen_control 的 /api/login 获取设备 token */
+  async deviceLogin(host: string, port: number, username: string, password: string): Promise<{ token: string; role: string }> {
+    consoleLogger.info("deviceLogin:start", { host, port });
+    const response = await requestJson<any>("/instance/device-login", {
+      method: "POST",
+      json: { username, password, host, port },
+    });
+    const body = unwrapApiPayload(response);
+    const token = String(body?.token ?? response?.data?.token ?? "");
+    const role = String(body?.role ?? response?.data?.role ?? "");
+    if (!token) {
+      throw new ApiError("http", response?.msg ?? "设备登录失败：未返回 token", 0);
+    }
+    consoleLogger.info("deviceLogin:ok", { host, port, role });
+    return { token, role };
+  },
+
+  /** 通过后端代理检查设备是否有活跃的投屏会话 */
+  async deviceSessionActive(host: string, port: number, token: string): Promise<boolean> {
+    try {
+      const response = await requestJson<any>("/instance/device-session-active", {
+        method: "POST",
+        json: { host, port, token },
+      });
+      const body = unwrapApiPayload(response);
+      return !!(body?.active ?? response?.data?.active);
+    } catch {
+      return false;
+    }
   },
 };
 

@@ -9,16 +9,19 @@ import (
 	"device-control-center/backend/api/internal/model"
 )
 
-func boolPtr(value bool) *bool {
-	return &value
-}
-
 func TestConsoleServiceFiltersDesktopInstances(t *testing.T) {
 	classifier := mustClassifier(t, `{
 		"desktop_keywords": ["desktop", "rk3588", "mytios", "xfce"],
 		"overrides": {}
 	}`)
 	svc := NewConsoleService(&stubProvider{
+		systems: model.SystemListResponse{
+			List: []model.SystemImage{
+				{ImageID: "img-1", ImageName: "MytIOS 1.0", IsDesktop: true},
+				{ImageID: "img-2", ImageName: "Debian 12 GNOME", IsDesktop: true},
+				{ImageID: "img-3", ImageName: "Ubuntu Server 22.04", IsDesktop: false},
+			},
+		},
 		list: model.InstanceListResponse{
 			List: []model.InstanceListItem{
 				{
@@ -36,7 +39,6 @@ func TestConsoleServiceFiltersDesktopInstances(t *testing.T) {
 					IPAddress:    "10.0.0.2",
 					Status:       "running",
 					ImageName:    "Ubuntu Server 22.04",
-					IsDesktop:    boolPtr(false),
 				},
 				{
 					InstanceID:   "desktop-2",
@@ -77,6 +79,12 @@ func TestConsoleServiceSearchAndPagination(t *testing.T) {
 		"overrides": {}
 	}`)
 	svc := NewConsoleService(&stubProvider{
+		systems: model.SystemListResponse{
+			List: []model.SystemImage{
+				{ImageID: "img-1", ImageName: "MytIOS 1.0", IsDesktop: true},
+				{ImageID: "img-2", ImageName: "Debian 12 GNOME", IsDesktop: true},
+			},
+		},
 		list: model.InstanceListResponse{
 			List: []model.InstanceListItem{
 				{
@@ -200,6 +208,7 @@ func TestConsoleServicePortMappingDelegates(t *testing.T) {
 }
 
 type stubProvider struct {
+	systems         model.SystemListResponse
 	list            model.InstanceListResponse
 	createRule      model.PortMappingRule
 	updateRule      model.PortMappingRule
@@ -221,6 +230,14 @@ func (s *stubProvider) Login(ctx context.Context, input model.LoginInput) (model
 	return model.AuthResponse{}, nil
 }
 
+func (s *stubProvider) LoginByPhone(ctx context.Context, input model.PhoneLoginInput) (model.AuthResponse, error) {
+	return model.AuthResponse{}, nil
+}
+
+func (s *stubProvider) Register(ctx context.Context, input model.RegisterInput) (model.AuthResponse, error) {
+	return model.AuthResponse{}, nil
+}
+
 func (s *stubProvider) Refresh(ctx context.Context, token, bearer string) (model.AuthResponse, error) {
 	return model.AuthResponse{}, nil
 }
@@ -231,6 +248,10 @@ func (s *stubProvider) Me(ctx context.Context, bearer string) (model.MeResponse,
 
 func (s *stubProvider) Logout(ctx context.Context, bearer string) error {
 	return nil
+}
+
+func (s *stubProvider) ListSystems(ctx context.Context, bearer string) (model.SystemListResponse, error) {
+	return s.systems, nil
 }
 
 func (s *stubProvider) ListInstances(ctx context.Context, bearer string, input model.ListInstancesInput) (model.InstanceListResponse, error) {
@@ -328,6 +349,14 @@ func (s *stubProvider) UploadStorageFileURL(ctx context.Context, bearer, instanc
 
 func (s *stubProvider) DownloadStorageFileURL(ctx context.Context, bearer, instanceID, key string) string {
 	return ""
+}
+
+func (s *stubProvider) GetOpLogs(ctx context.Context, bearer, instanceID string, page, pageSize int) (model.OpLogListResponse, error) {
+	return model.OpLogListResponse{}, nil
+}
+
+func (s *stubProvider) GetStorageInstances(ctx context.Context, bearer string) (model.StorageInstanceListResponse, error) {
+	return model.StorageInstanceListResponse{}, nil
 }
 
 func mustClassifier(t *testing.T, content string) *DesktopClassifier {

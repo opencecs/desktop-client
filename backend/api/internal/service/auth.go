@@ -23,6 +23,11 @@ func (s *AuthService) Login(ctx context.Context, input model.LoginInput) (model.
 	return s.client.Login(ctx, input)
 }
 
+// LoginByPhone 短信验证码登录
+func (s *AuthService) LoginByPhone(ctx context.Context, input model.PhoneLoginInput) (model.AuthResponse, error) {
+	return s.client.LoginByPhone(ctx, input)
+}
+
 func (s *AuthService) Refresh(ctx context.Context, token, bearer string) (model.AuthResponse, error) {
 	return s.client.Refresh(ctx, token, bearer)
 }

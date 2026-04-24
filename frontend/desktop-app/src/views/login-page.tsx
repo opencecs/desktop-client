@@ -35,6 +35,7 @@ export function LoginPage() {
   const hydrated = useAuthStore((state) => state.hydrated);
   const setSession = useAuthStore((state) => state.setSession);
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [loginMethod, setLoginMethod] = useState<"account" | "phone">("account");
 
   const saved = readRemembered();
   const [form, setForm] = useState({
@@ -46,6 +47,11 @@ export function LoginPage() {
     phone: "",
     code: "",
     agreeAll: false,
+  });
+  const [phoneForm, setPhoneForm] = useState({
+    phone: "",
+    code: "",
+    rememberMe: false,
   });
 
   const loginMutation = useMutation({
@@ -71,6 +77,15 @@ export function LoginPage() {
     },
   });
 
+  const phoneLoginMutation = useMutation({
+    mutationFn: consoleApi.loginByPhone,
+    onSuccess: (nextSession) => {
+      console.log("[LoginPage] 短信登录成功，跳转首页");
+      setSession(nextSession);
+      navigate("/", { replace: true });
+    },
+  });
+
   // 短信验证码倒计时
   const [countdown, setCountdown] = useState(0);
   const [smsSending, setSmsSending] = useState(false);
@@ -81,11 +96,11 @@ export function LoginPage() {
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  const onSendSms = async () => {
-    if (!regForm.phone || countdown > 0 || smsSending) return;
+  const onSendSms = async (phone: string, scene: "register" | "login") => {
+    if (!phone || countdown > 0 || smsSending) return;
     setSmsSending(true);
     try {
-      await consoleApi.sendVerificationCode({ channel: "sms", target: regForm.phone, scene: "register" });
+      await consoleApi.sendVerificationCode({ channel: "sms", target: phone, scene });
       setCountdown(60);
     } catch (err) {
       console.error("[LoginPage] 发送验证码失败", err);
@@ -111,6 +126,11 @@ export function LoginPage() {
     registerMutation.mutate({ phone: regForm.phone, code: regForm.code });
   };
 
+  const onPhoneLoginSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    phoneLoginMutation.mutate(phoneForm);
+  };
+
   return (
     <div className="login-screen">
       <div className="login-backdrop" />
@@ -132,42 +152,111 @@ export function LoginPage() {
           </div>
 
           {mode === "login" ? (
-            <form className="login-form" onSubmit={onLoginSubmit}>
-              <Input
-                label="用户名"
-                value={form.username}
-                onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
-                placeholder="请输入用户名"
-                autoComplete="username"
-              />
-              <Input
-                label="密码"
-                type="password"
-                value={form.password}
-                onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
-                placeholder="请输入密码"
-                autoComplete="current-password"
-              />
+            <>
+              {/* 登录方式 Tab 切换 */}
+              <div className="login-method-tabs">
+                <button
+                  type="button"
+                  className={`login-method-tab${loginMethod === "account" ? " active" : ""}`}
+                  onClick={() => { setLoginMethod("account"); phoneLoginMutation.reset(); }}
+                >
+                  账号密码
+                </button>
+                <button
+                  type="button"
+                  className={`login-method-tab${loginMethod === "phone" ? " active" : ""}`}
+                  onClick={() => { setLoginMethod("phone"); loginMutation.reset(); }}
+                >
+                  短信验证码
+                </button>
+              </div>
 
-              {loginMutation.isError && (
-                <Alert
-                  type="error"
-                  message={loginMutation.error instanceof Error ? loginMutation.error.message : "登录失败，请检查凭据"}
-                />
+              {loginMethod === "account" ? (
+                <form className="login-form" onSubmit={onLoginSubmit}>
+                  <Input
+                    label="用户名"
+                    value={form.username}
+                    onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
+                    placeholder="请输入用户名"
+                    autoComplete="username"
+                  />
+                  <Input
+                    label="密码"
+                    type="password"
+                    value={form.password}
+                    onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+                    placeholder="请输入密码"
+                    autoComplete="current-password"
+                  />
+
+                  {loginMutation.isError && (
+                    <Alert
+                      type="error"
+                      message={loginMutation.error instanceof Error ? loginMutation.error.message : "登录失败，请检查凭据"}
+                    />
+                  )}
+
+                  <label className="remember-password-label">
+                    <input
+                      type="checkbox"
+                      checked={form.rememberMe}
+                      onChange={(e) => setForm((prev) => ({ ...prev, rememberMe: e.target.checked }))}
+                    />
+                    <span>记住密码</span>
+                  </label>
+
+                  <Button variant="primary" type="submit" block loading={loginMutation.isPending}>
+                    {loginMutation.isPending ? "正在登录..." : "登录"}
+                  </Button>
+                </form>
+              ) : (
+                <form className="login-form" onSubmit={onPhoneLoginSubmit}>
+                  <Input
+                    label="手机号"
+                    value={phoneForm.phone}
+                    onChange={(event) => setPhoneForm((prev) => ({ ...prev, phone: event.target.value }))}
+                    placeholder="请输入手机号"
+                    autoComplete="tel"
+                  />
+                  <div className="sms-code-row">
+                    <Input
+                      label="验证码"
+                      value={phoneForm.code}
+                      onChange={(event) => setPhoneForm((prev) => ({ ...prev, code: event.target.value }))}
+                      placeholder="请输入验证码"
+                      autoComplete="one-time-code"
+                    />
+                    <button
+                      type="button"
+                      className="sms-code-btn"
+                      disabled={!phoneForm.phone || countdown > 0 || smsSending}
+                      onClick={() => onSendSms(phoneForm.phone, "login")}
+                    >
+                      {smsSending ? "发送中..." : countdown > 0 ? `${countdown}s` : "获取验证码"}
+                    </button>
+                  </div>
+
+                  {phoneLoginMutation.isError && (
+                    <Alert
+                      type="error"
+                      message={phoneLoginMutation.error instanceof Error ? phoneLoginMutation.error.message : "登录失败，请稍后重试"}
+                    />
+                  )}
+
+                  <label className="remember-password-label">
+                    <input
+                      type="checkbox"
+                      checked={phoneForm.rememberMe}
+                      onChange={(e) => setPhoneForm((prev) => ({ ...prev, rememberMe: e.target.checked }))}
+                    />
+                    <span>保持登录</span>
+                  </label>
+
+                  <Button variant="primary" type="submit" block loading={phoneLoginMutation.isPending} disabled={!phoneForm.phone || !phoneForm.code}>
+                    {phoneLoginMutation.isPending ? "正在登录..." : "登录"}
+                  </Button>
+                </form>
               )}
-
-              <label className="remember-password-label">
-                <input
-                  type="checkbox"
-                  checked={form.rememberMe}
-                  onChange={(e) => setForm((prev) => ({ ...prev, rememberMe: e.target.checked }))}
-                />
-                <span>记住密码</span>
-              </label>
-
-              <Button variant="primary" type="submit" block loading={loginMutation.isPending}>
-                {loginMutation.isPending ? "正在登录..." : "登录"}
-              </Button>
 
               <p className="auth-switch-text">
                 还没有账号？{" "}
@@ -175,7 +264,7 @@ export function LoginPage() {
                   立即注册
                 </button>
               </p>
-            </form>
+            </>
           ) : (
             <form className="login-form" onSubmit={onRegisterSubmit}>
               <Input
@@ -197,7 +286,7 @@ export function LoginPage() {
                   type="button"
                   className="sms-code-btn"
                   disabled={!regForm.phone || countdown > 0 || smsSending}
-                  onClick={onSendSms}
+                  onClick={() => onSendSms(regForm.phone, "register")}
                 >
                   {smsSending ? "发送中..." : countdown > 0 ? `${countdown}s` : "获取验证码"}
                 </button>
